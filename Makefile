@@ -18,7 +18,7 @@ BUILD_DIR = build
 
 # Output targets
 LIB_TARGET = $(BUILD_DIR)/libospager.so
-APP_TARGET = $(BUILD_DIR)/app
+APP_TARGET = $(BUILD_DIR)/os
 
 # Source files
 LIB_SRC = $(wildcard $(LIB_SRC_DIR)/*.c)

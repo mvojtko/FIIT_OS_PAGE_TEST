@@ -14,5 +14,5 @@ int main(int argc, char* argv[])
 
     void * memory = malloc(1000);
 
-    return init_ram(memory, 1024, 256);
+    return init_ram(memory, 1024, 128);
 }
