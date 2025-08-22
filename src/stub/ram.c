@@ -1,7 +1,8 @@
-#include "pager.h"
 #include <stddef.h>
 #include <string.h>
 #include <stdio.h>
+
+#include "ram.h"
 
 static void *g_memory = NULL;
 static uint16_t g_size = 0;
@@ -36,9 +37,12 @@ int init_ram(void *memory, uint16_t size, uint8_t page_size)
 
 int dump_ram_stats(char *buffer, uint16_t size)
 {
+    uint16_t total_frames = (g_page_size) ? (g_size / g_page_size) : 0;
     return snprintf(buffer, size,
         "free frames:            %u\n"
         "used frames by system:  %u\n"
         "used frames by tasks:   %u\n"
-        "frames total:           %u\n", g_size, 0 , 0, g_size);
+        "frames total:           %u\n"
+        "memory total:           %u\n",
+        total_frames, 0 , 0, total_frames, g_size);
 }

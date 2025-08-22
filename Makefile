@@ -13,7 +13,7 @@ LDFLAGS_LIB = -shared
 LDFLAGS_APP = -L$(BUILD_DIR) -lospager $(GTEST_LIB)
 
 GTEST_DIR = gtest
-GTEST_LIB = build/lib/libgtest_main.a build/lib/libgtest.a
+GTEST_LIB = build/lib/libgtest.a
 
 # Directories
 SRC_DIR = src
@@ -26,17 +26,19 @@ APP_TARGET = $(BUILD_DIR)/os
 
 # Source files
 LIB_SRC = $(wildcard $(LIB_SRC_DIR)/*.c)
-APP_SRC = $(filter-out $(LIB_SRC), $(wildcard $(SRC_DIR)/*.c))
+APP_SRC = $(filter-out $(LIB_SRC), $(wildcard $(SRC_DIR)/*.cpp))
 
 # Object files
 LIB_OBJ = $(patsubst $(LIB_SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(LIB_SRC))
-APP_OBJ = $(patsubst $(SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(APP_SRC))
+APP_OBJ = $(patsubst $(SRC_DIR)/%.cpp, $(BUILD_DIR)/%.o, $(APP_SRC))
+
+DEBUG ?= -d
 
 # Default target: build app (which depends on the library)
 all: test
 
 test: $(APP_TARGET)
-	@LD_LIBRARY_PATH=$(BUILD_DIR) $(APP_TARGET)
+	@LD_LIBRARY_PATH=$(BUILD_DIR) $(APP_TARGET) $(DEBUG)
 
 #build gtest libs
 $(GTEST_LIB): | $(BUILD_DIR)
