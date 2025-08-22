@@ -1,4 +1,5 @@
 # Compiler and flags
+CXX = g++
 CC = gcc
 CFLAGS_COMMON = -fPIC -Wall -Wextra -O2 -Isrc -Isrc/stub
 CFLAGS_LIB = $(CFLAGS_COMMON) \
@@ -6,10 +7,13 @@ CFLAGS_LIB = $(CFLAGS_COMMON) \
 			 -Dcalloc=__forbidden_calloc \
 			 -Drealloc=__forbidden_realloc \
 			 -Dfree=__forbidden_free
-CFLAGS_APP = $(CFLAGS_COMMON)
+CXXFLAGS_APP = $(CFLAGS_COMMON) -Igtest/googletest/include -pthread
 
 LDFLAGS_LIB = -shared
-LDFLAGS_APP = -L$(BUILD_DIR) -lospager
+LDFLAGS_APP = -L$(BUILD_DIR) -lospager $(GTEST_LIB)
+
+GTEST_DIR = gtest
+GTEST_LIB = build/lib/libgtest_main.a build/lib/libgtest.a
 
 # Directories
 SRC_DIR = src
@@ -34,20 +38,24 @@ all: test
 test: $(APP_TARGET)
 	@LD_LIBRARY_PATH=$(BUILD_DIR) $(APP_TARGET)
 
+#build gtest libs
+$(GTEST_LIB): | $(BUILD_DIR)
+	@cd $(GTEST_DIR) && cmake -S . -B ../$(BUILD_DIR) && $(MAKE) -C ../$(BUILD_DIR)
+
 # Build the shared library
 $(LIB_TARGET): $(LIB_OBJ) | $(BUILD_DIR)
 	@echo Linking $@
 	@$(CC) $(LDFLAGS_LIB) -o $@ $^
 
 # Build the executable
-$(APP_TARGET): $(APP_OBJ) $(LIB_TARGET)
+$(APP_TARGET): $(APP_OBJ) $(LIB_TARGET) $(GTEST_LIB)
 	@echo Linking $@
-	@$(CC) -o $@ $(APP_OBJ) $(LDFLAGS_APP)
+	@$(CXX) -o $@ $(APP_OBJ) $(LDFLAGS_APP)
 
 # Compile app source files to object files
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.c | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp | $(BUILD_DIR)
 	@echo Compiling $<
-	@$(CC) $(CFLAGS_APP) -c $< -o $@
+	@$(CXX) $(CXXFLAGS_APP) -c $< -o $@
 
 # Compile library source files to object files
 $(BUILD_DIR)/%.o: $(LIB_SRC_DIR)/%.c | $(BUILD_DIR)
@@ -61,5 +69,5 @@ $(BUILD_DIR):
 
 # Clean all build artifacts
 clean:
-	@echo Deleting $@
+	@echo Deleting $(BUILD_DIR)
 	@rm -rf $(BUILD_DIR)

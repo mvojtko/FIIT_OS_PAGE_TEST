@@ -2,61 +2,23 @@
 
 #include <stdint.h>
 
-typedef struct task_struct
+typedef struct tPage_table_entry
 {
-    int pid;
-    void *page_table;
-} task_struct;
+    uint8_t r : 1;     // read access
+    uint8_t w : 1;     // write access
+    uint8_t x : 1;     // execute access
+    uint8_t p_bit : 1; // page present in ram
+    uint8_t r_bit : 1; // page was referenced
+    uint8_t m_bit : 1; // page modified
+    uint16_t frame_id;
+} tPage_table_entry;
 
-// Init ram model used for testing. All data in memory are zeroed.
-// Library can use only this memory for paging maintanance
-//   memory    - pointer to the memory
-//   size      - size of the memory
-//   page_size - size of one page in the memory 
-//   returns - n number of pages in the memory
-//           - -1 size is not power of two
-//           - -2 page_size not power of two 
-int init_ram(void *memory, uint16_t size, uint8_t page_size);
-
-// produces ram stats data to provided buffer
-// returns 0 on success
-//         -1 buffer contains truncated data 
-// Format of the output in the buffer:
-// free pages:            %u
-// used pages by system:  %u
-// used pages by tasks:   %u
-// pages total:           %u
-int dump_ram_stats(const char *buffer, uint16_t size);
-
-// check whether library supports thread safety
-// if yes paging may be tested by multiple threads
-int is_thread_safe();
-
-// creates new task in the memory.
-// this function:
-//   fills task_struct entry in the memory
-//   assigns pid to the task
-//   creates page-table for the task
-// The address space of the task has size 2^16 B
-// returns: pid on success
-//          -1 when there is not enough resources to create new task 
-int create_task();
-
-// destroy task in the memory
-// this function:
-//   frees task_struct entry in the memory
-//   releases all pages of the task
-//   destroys page-table of the task
-// returns: 0 on success
-//          -1 when the task does not exist
-int destroy_task(int pid);
-
-// produces tasks stats data to provided buffer
-// returns 0 on success
-//         -1 buffer contains truncated data 
-// Format of the table output in the buffer:
-// task page-table 
-// %d   %p
-// ...  ...
-// tasks total: %u
-int dump_tasks_stats(const char *buffer, uint16_t size);
+// function loads page content to ram
+//   pid        - task identification
+//   page_id    - page id loaded to ram
+//   data       - page data loaded to ram
+//   returns:  0 - success
+//            -1 - out of page frames
+//            -2 - segmentation fault
+//            -3 - task not found
+int load_page(int pid, uint16_t page_id, void *data);
