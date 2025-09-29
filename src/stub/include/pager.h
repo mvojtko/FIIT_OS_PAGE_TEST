@@ -4,13 +4,13 @@
 
 typedef struct tPage_table_entry
 {
-    uint8_t r : 1;     // read access
-    uint8_t w : 1;     // write access
-    uint8_t x : 1;     // execute access
-    uint8_t p_bit : 1; // page present in ram
-    uint8_t r_bit : 1; // page was referenced
-    uint8_t m_bit : 1; // page modified
-    uint16_t frame_id;
+  uint8_t r : 1;     // read access
+  uint8_t w : 1;     // write access
+  uint8_t x : 1;     // execute access
+  uint8_t p_bit : 1; // page present in ram
+  uint8_t r_bit : 1; // page was referenced
+  uint8_t m_bit : 1; // page modified
+  uint16_t frame_id; // assigned frame in ram
 } tPage_table_entry;
 
 // function loads page content to ram

@@ -9,7 +9,7 @@ typedef struct tRam
     uint8_t *bitmap;
 } tRam;
 
-// Init ram model. Library can use only this memory for paging maintanance.
+// Init ram model. Library can use only this memory for paging maintenance.
 // Size of a page is number of words. where word has a size 1 Byte.
 //   memory    - pointer to the memory
 //   size      - size of the memory

@@ -1,7 +1,7 @@
 # Compiler and flags
 CXX = g++
 CC = gcc
-CFLAGS_COMMON = -fPIC -Wall -Wextra -O2 -Isrc -Isrc/stub
+CFLAGS_COMMON = -fPIC -Wall -Wextra -O2 -Isrc -Isrc/stub/include
 CFLAGS_LIB = $(CFLAGS_COMMON) \
 			 -Dmalloc=__forbidden_malloc \
 			 -Dcalloc=__forbidden_calloc \
