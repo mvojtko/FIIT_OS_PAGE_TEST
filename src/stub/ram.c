@@ -4,9 +4,30 @@
 
 #include "ram.h"
 
-static void *g_memory = NULL;
-static uint16_t g_size = 0;
-static uint8_t g_page_size = 0;
+static tRam *g_ram = NULL;
+
+#define NUM_RAM_FRAMES g_ram->size / g_ram->page_size
+#define NUM_FRAMES(bytes) ((bytes) / g_ram->page_size) + (((bytes) % g_ram->page_size) ? 1 : 0)
+
+uint8_t *init_bitmap()
+{
+    if (NUM_FRAMES(sizeof(tRam)) > NUM_RAM_FRAMES)
+        return NULL;
+
+    // number of bytes of tRam data with bitmap
+    uint16_t bytes = sizeof(tRam) + ((NUM_RAM_FRAMES >= 8) ? (NUM_RAM_FRAMES / 8) : 1);
+    uint16_t frames = NUM_FRAMES(bytes);
+
+    if (frames > NUM_RAM_FRAMES)
+        return NULL;
+
+    g_ram->bitmap = (uint8_t *)(g_ram + 1);
+    for (uint16_t frame_id = 0; frame_id < frames; frame_id++)
+    {
+        g_ram->bitmap[frame_id / 8] |= (0x01 << (frame_id % 8));
+    }
+    return g_ram->bitmap;
+}
 
 int init_ram(void *memory, uint16_t size, uint8_t page_size)
 {
@@ -29,20 +50,26 @@ int init_ram(void *memory, uint16_t size, uint8_t page_size)
             return -3;
     }
 
-    g_memory = memory;
-    g_size = size;
-    g_page_size = page_size;
-    return 0;
+    g_ram = (tRam *)memory;
+    g_ram->size = size;
+    g_ram->page_size = page_size;
+    if (init_bitmap())
+    {
+        return size / page_size;
+    }
+
+    g_ram->size = 0;
+    g_ram->page_size = 0;
+    g_ram = NULL;
+    return -4;
 }
 
-int dump_ram_stats(char *buffer, uint16_t size)
+void destroy_ram()
 {
-    uint16_t total_frames = (g_page_size) ? (g_size / g_page_size) : 0;
-    return snprintf(buffer, size,
-        "free frames:            %u\n"
-        "used frames by system:  %u\n"
-        "used frames by tasks:   %u\n"
-        "frames total:           %u\n"
-        "memory total:           %u\n",
-        total_frames, 0 , 0, total_frames, g_size);
+    g_ram = NULL;
+}
+
+const tRam *get_ram_state()
+{
+    return g_ram;
 }
