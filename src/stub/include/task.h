@@ -2,34 +2,39 @@
 
 #include <stdint.h>
 
-// Task data within address-space
-typedef struct tTask_data
+typedef struct tTaskStruct
 {
-  uint8_t r : 1;          // read access
-  uint8_t w : 1;          // write access
-  uint8_t x : 1;          // execute access
-  uint16_t first_page_id; // placement of data in task address_space
-  uint16_t page_count;    // number of pages
-} tTask_data;
+    uint8_t max_frames;  // limit maximum number of pages in ram. If 0 there is no limit
+    int pid;             // process id of task
+    void *page_table;    // handle to page_table in ram.
+    void *swap_table;    // handle to swap_table in ram. If null swap is not used by task
+} tTaskStruct;
 
-typedef struct tTask_struct
+typedef struct tTaskMgr
 {
-  int pid;           // process id of task
-  void *page_table;  // handle to page_table in ram
-  void *swap_table;  // handle to swap_table in ram if null swap is not used by task
-} tTask_struct;
+    tTaskStruct[10] tasks;  // storage for task data
+} tTaskMgr;
+
+// initializes taskMgr.
+// this function:
+//   reserves space in ram for tTaskMgr - i.e. this should consume some frame/frames
+int init_taskMgr();
+
+// Destroy taskMgr. Releases all resources.
+void destroy_taskMgr();
 
 // creates new task in the memory.
 // this function:
 //   fills task_struct entry in the memory
 //   assigns pid to the task
-//   creates page-table for the task
-//   optionaly creates swap table if swap was initialized
+//   stores page-table for the task
+//   optionally creates swap table if swap was initialized
 // The address space of the task has size 2^16 B
 // returns:  pid on success
 //          -1 not enough resources to create new task
 //          -2 when input parameters are invalid
-int create_task(tTask_data data_blocks[], uint8_t block_count);
+//          -3 the system was not initialized
+int create_task(void *page_table, uint8_t max_frames);
 
 // destroy task in the memory
 // this function:
@@ -40,12 +45,7 @@ int create_task(tTask_data data_blocks[], uint8_t block_count);
 //          -1 task does not exist
 int destroy_task(int pid);
 
-// produces tasks stats data to provided buffer
-// returns  0 success
-//          1 buffer contains truncated data 
-// Format of the table output in the buffer:
-// task page-table 
-// %d   %p
-// ...  ...
-// tasks total: %u
-int dump_tasks_stats(const char *buffer, uint16_t size);
+// Returns pointer to a tTaskMgr structure.
+//  returns - pointer to tTaskMgr
+//          - nullptr when task_mgr is not initialized
+tTaskMgr *get_task_mgr();
