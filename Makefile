@@ -26,7 +26,11 @@ APP_TARGET = $(BUILD_DIR)/os
 
 # Source files
 LIB_SRC = $(wildcard $(LIB_SRC_DIR)/*.c)
-APP_SRC = $(filter-out $(LIB_SRC), $(wildcard $(SRC_DIR)/*.cpp))
+APP_SRC = $(wildcard $(SRC_DIR)/*.cpp)
+
+#headers
+LIB_HDR = $(wildcard $(LIB_SRC_DIR)/include/*.h)
+APP_HDR = $(wildcard $(SRC_DIR)/*.h)
 
 # Object files
 LIB_OBJ = $(patsubst $(LIB_SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(LIB_SRC))
@@ -36,6 +40,8 @@ DEBUG ?= -d
 
 # Default target: build app (which depends on the library)
 all: test
+
+os: $(APP_TARGET)
 
 test: $(APP_TARGET)
 	@LD_LIBRARY_PATH=$(BUILD_DIR) $(APP_TARGET) $(DEBUG)
@@ -55,12 +61,12 @@ $(APP_TARGET): $(APP_OBJ) $(LIB_TARGET) $(GTEST_LIB)
 	@$(CXX) -o $@ $(APP_OBJ) $(LDFLAGS_APP)
 
 # Compile app source files to object files
-$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: $(SRC_DIR)/%.cpp $(LIB_HDR) $(APP_HDR) | $(BUILD_DIR)
 	@echo Compiling $<
 	@$(CXX) $(CXXFLAGS_APP) -c $< -o $@
 
 # Compile library source files to object files
-$(BUILD_DIR)/%.o: $(LIB_SRC_DIR)/%.c | $(BUILD_DIR)
+$(BUILD_DIR)/%.o: $(LIB_SRC_DIR)/%.c $(LIB_HDR) | $(BUILD_DIR)
 	@echo Compiling $<
 	@$(CC) $(CFLAGS_LIB) -c $< -o $@
 
