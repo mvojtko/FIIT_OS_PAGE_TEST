@@ -1,5 +1,6 @@
 #include "gtest/gtest.h"
 #include "debug.h"
+#include "test_ram.h"
 
 extern "C" {
 #include "ram.h"
@@ -91,27 +92,37 @@ class RamParamTest : public ::testing::TestWithParam<InitRamCase>
     uint8_t buffer[kBufferSize];
 };
 
-static uint16_t getOccupiedFramesAndPrint(const uint8_t *bitmap, uint16_t bitmapSize, bool *isContinuous)
+uint16_t getOccupiedFrames(const tRam &ram, bool print, bool *isContinuous)
 {
+    uint8_t *bitmap = ram.bitmap;
+    uint16_t num_frames = ram.size / ram.page_size;
+    uint16_t bitmapSize = (num_frames > 8) ? num_frames / 8 : 1;
+
+    if (bitmap == nullptr)
+        return 0;
+
     // check frames used by system
-    uint16_t actualFrames = 0;
+    uint16_t occupiedFrames = 0;
     bool blockStarted = false;
     bool blockEnded = false;
     for (uint16_t byte_id = 0; byte_id < bitmapSize; byte_id++)
     {
         uint8_t byte = bitmap[byte_id];
-        if ((byte_id % 16) == 0)
-            printf("\n0x%03x ->", byte_id);
-        if ((byte_id % 4) == 0)
-            printf(" ");
-        printf("%02x", byte);
+        if (print)
+        {
+            if ((byte_id % 16) == 0)
+                printf("\n0x%03x ->", byte_id);
+            if ((byte_id % 4) == 0)
+                printf(" ");
+            printf("%02x", byte);
+        }
         for (uint8_t bit = 0x01; bit != 0x00; bit <<= 1)
         {
             if (byte & bit)
             {
                 blockStarted = true;
-                actualFrames++;
-                if (blockStarted && blockEnded)
+                occupiedFrames++;
+                if (isContinuous != NULL && blockStarted && blockEnded)
                 {
                     *isContinuous = false;
                 }
@@ -122,8 +133,18 @@ static uint16_t getOccupiedFramesAndPrint(const uint8_t *bitmap, uint16_t bitmap
             }
         }
     }
-    printf("\n");
-    return actualFrames;
+    if (print)
+        printf("\n");
+    return occupiedFrames;
+}
+
+uint16_t RamTestBase::getOccupiedFrames(bool print, bool *isContinuous)
+{
+    const tRam *ret = get_ram_state();
+    if (ret)
+        return ::getOccupiedFrames(*ret, print, isContinuous);
+
+    return 0;
 }
 
 TEST_P(RamParamTest, InitRam)
@@ -141,13 +162,15 @@ TEST_P(RamParamTest, GetRamState)
     if (result <= 0)
         return;
 
+    ASSERT_NE(ret, nullptr);
+
     // test that there is some ram already used by system
     uint16_t bitmapSize = (result > 8) ? (result / 8) : 1;
     uint16_t occupiedBytes = bitmapSize + sizeof(tRam);
     uint16_t expectedOccupiedFrames = (occupiedBytes / p.page_size) + ((occupiedBytes % p.page_size) ? 1 : 0);
 
     bool isContinuous = true;
-    uint16_t occupiedFrames = getOccupiedFramesAndPrint(ret->bitmap, bitmapSize, &isContinuous);
+    uint16_t occupiedFrames = getOccupiedFrames(*ret, true, &isContinuous);
 
     EXPECT_EQ(occupiedFrames, expectedOccupiedFrames);
     EXPECT_TRUE(isContinuous);
@@ -160,9 +183,12 @@ TEST_P(RamParamTest, GetRamState_boundaries)
     const tRam *ret = get_ram_state();
     if (result > 0)
     {
+        ASSERT_NE(ret, nullptr);
+
         // returned sizes are equal to input sizes
         EXPECT_EQ(ret->size, p.size);
         EXPECT_EQ(ret->page_size, p.page_size);
+        EXPECT_EQ(result, ret->size / ret->page_size);
         // returned struct is inside reserved memory
         EXPECT_GE((uint8_t *)ret, buffer);
         EXPECT_LT((uint8_t *)ret, buffer + p.size);
@@ -177,7 +203,7 @@ TEST_P(RamParamTest, GetRamState_boundaries)
     }
 }
 
-static uint16_t nextPow2(uint16_t num)
+uint16_t nextPow2(uint16_t num)
 {
     uint16_t pow2 = 0x1;
     for (; pow2 <= num; pow2 <<= 0x1)

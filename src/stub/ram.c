@@ -69,6 +69,62 @@ void destroy_ram()
     g_ram = NULL;
 }
 
+void *falloc(uint16_t number)
+{
+    if (g_ram == NULL)
+        return NULL;
+
+    if (number == 0)
+        return NULL;
+
+    uint16_t start_frame_id = 0;
+    uint16_t found_number = 0;
+    for (uint16_t frame_id = 0; frame_id < NUM_RAM_FRAMES; frame_id++)
+    {
+        if ((g_ram->bitmap[frame_id / 8] & (0x01 << frame_id % 8)) == 0)
+        {
+            if (found_number == 0)
+                start_frame_id = frame_id;
+
+            found_number++;
+            if (found_number == number)
+                break;
+        }
+        else
+        {
+            found_number = 0;
+        }
+    }
+
+    if (found_number != number)
+    {
+        return NULL;
+    }
+
+    for (uint16_t frame_id = start_frame_id; frame_id < start_frame_id + found_number; frame_id++)
+    {
+        g_ram->bitmap[frame_id / 8] |= (0x01 << (frame_id % 8));
+    }
+
+    return (uint8_t *)g_ram + (g_ram->page_size * start_frame_id);
+}
+
+void ffree(const void *memory, uint16_t number)
+{
+    if (g_ram == NULL)
+        return;
+
+    if (memory == NULL || (uint8_t *)memory < (uint8_t *)g_ram || (uint8_t *)memory > ((uint8_t *)g_ram + g_ram->size))
+        return;
+
+    uint16_t start_frame_id = ((uint8_t *)memory - (uint8_t *)g_ram) / g_ram->page_size;
+
+    for (uint16_t frame_id = start_frame_id; frame_id < start_frame_id + number; frame_id++)
+    {
+        g_ram->bitmap[frame_id / 8] &= ~(0x01 << (frame_id % 8));
+    }
+}
+
 const tRam *get_ram_state()
 {
     return g_ram;

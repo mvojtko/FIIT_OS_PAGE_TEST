@@ -24,6 +24,16 @@ int init_ram(void *memory, uint16_t size, uint8_t page_size);
 // Destroy ram model. Releases all resources.
 void destroy_ram();
 
+// Reserve specified number of consecutive frames in ram.
+// Uses first fit algorithm
+//  returns - nullptr when there is no such free space present or ram is not initialized
+//          - pointer to start of first reserved frame
+void *falloc(uint16_t number);
+
+// Free reserved number of consecutive frames in ram.
+// This is low level utility. It may mark wrong frames as free without warning
+void ffree(const void *, uint16_t number);
+
 // Returns pointer to a tRam structure.
 //  returns - pointer to tRam
 //          - nullptr when ram is not initialized
