@@ -27,6 +27,7 @@ class TaskManagerTest : public RamTestBase
     {
         page_table.resize(8);
         memset(page_table.data(), 1, page_table.size() * sizeof(tPageTableEntry));
+        memset(address_space, 2, sizeof(address_space));
         init_taskMgr();
     }
 
@@ -36,6 +37,7 @@ class TaskManagerTest : public RamTestBase
     }
 
     std::vector<tPageTableEntry> page_table;
+    uint8_t address_space[PAGE_SIZE * PAGE_TABLE_SIZE];
 };
 
 TEST(TaskManagerTest_NoRam, NoManager)
@@ -71,7 +73,7 @@ TEST_F(TaskManagerTest, InitAndDestroyManager)
 TEST_F(TaskManagerTest, CreateTaskSuccessfully)
 {
     uint8_t max_frames = 4;
-    int pid = create_task(page_table.data(), max_frames);
+    int pid = create_task(page_table.data(), max_frames, address_space);
     EXPECT_GE(pid, 0) << "create_task should return valid pid >= 0";
 
     const tTaskMgr *mgr = get_task_mgr();
@@ -97,13 +99,13 @@ TEST_F(TaskManagerTest, CreateTaskSuccessfully)
 TEST_F(TaskManagerTest, CreateTaskInvalidParams)
 {
     // Null page_table should yield -2
-    EXPECT_EQ(create_task(nullptr, 5), -2);
+    EXPECT_EQ(create_task(nullptr, 5, address_space), -2);
 }
 
 TEST_F(TaskManagerTest, CreateTaskWithoutInitFails)
 {
     destroy_taskMgr();  // simulate uninitialized state
-    EXPECT_EQ(create_task(page_table.data(), 4), -3);
+    EXPECT_EQ(create_task(page_table.data(), 4, address_space), -3);
 }
 
 TEST_F(TaskManagerTest, CreateTaskResourceLimit)
@@ -111,16 +113,22 @@ TEST_F(TaskManagerTest, CreateTaskResourceLimit)
     // Create max number of tasks
     for (int i = 0; i < 8; ++i)
     {
-        EXPECT_GE(create_task(page_table.data(), 1), 0);
+        EXPECT_GE(create_task(page_table.data(), 1, address_space), 0);
     }
 
     // Creating one more should fail
-    EXPECT_EQ(create_task(page_table.data(), 1), -1);
+    EXPECT_EQ(create_task(page_table.data(), 1, address_space), -1);
+}
+
+TEST_F(TaskManagerTest, DestroyTaskWithoutInitFails)
+{
+    destroy_taskMgr();  // simulate uninitialized state
+    EXPECT_EQ(destroy_task(1), -1);
 }
 
 TEST_F(TaskManagerTest, DestroyExistingTask)
 {
-    int pid = create_task(page_table.data(), 2);
+    int pid = create_task(page_table.data(), 2, address_space);
     ASSERT_GE(pid, 0);
 
     EXPECT_EQ(destroy_task(pid), 0);
@@ -138,5 +146,6 @@ TEST_F(TaskManagerTest, DestroyExistingTask)
 
 TEST_F(TaskManagerTest, DestroyNonexistentTask)
 {
+    EXPECT_EQ(destroy_task(5), -1);
     EXPECT_EQ(destroy_task(9999), -1);
 }

@@ -33,9 +33,9 @@ void *falloc(uint16_t number);
 
 // Free reserved number of consecutive frames in ram.
 // This is low level utility that may be used by system. It may mark wrong frames as free without warning
-void ffree(const void *, uint16_t number);
+void ffree(const void *memory, uint16_t number);
 
-// Returns pointer to a tRam structure.
+// Returns pointer to a tRam structure stored in the ram.
 //  returns - pointer to tRam
 //          - nullptr when ram is not initialized
 const tRam *get_ram_state();

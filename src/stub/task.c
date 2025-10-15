@@ -1,7 +1,9 @@
+#include <stdbool.h>
 #include <string.h>
 
-#include "task.h"
+#include "pager.h"
 #include "ram.h"
+#include "task.h"
 
 static tTaskMgr *g_task_mgr = NULL;
 
@@ -37,9 +39,12 @@ void destroy_taskMgr()
     g_task_mgr = NULL;
 }
 
-int create_task(const tPageTableEntry *page_table, uint8_t max_frames)
+int create_task(const tPageTableEntry *page_table, uint8_t max_frames, void *address_space)
 {
     if (page_table == NULL)
+        return -2;
+
+    if (address_space == NULL)
         return -2;
 
     if (g_task_mgr == NULL)
@@ -52,6 +57,7 @@ int create_task(const tPageTableEntry *page_table, uint8_t max_frames)
         {
             task->max_frames = max_frames;
             task->pid = id;
+            task->address_space = address_space;
             memcpy(&task->page_table, page_table, 8*sizeof(tPageTableEntry));
             return id;
         }
@@ -61,20 +67,47 @@ int create_task(const tPageTableEntry *page_table, uint8_t max_frames)
 
 int destroy_task(int pid)
 {
-    for (uint8_t id = 0; id < MAX_NUM_TASKS; id ++)
+    const tRam *ram = get_ram_state();
+    if (ram == NULL)
+        return -1;
+
+    if (g_task_mgr == NULL)
+        return -1;
+
+    tTaskStruct *task = get_task_Struct(pid);
+    if (task == NULL)
+        return -1;
+
+    for (uint8_t id = 0; id < PAGE_TABLE_SIZE; id++)
     {
-        tTaskStruct *task = &(g_task_mgr->tasks[id]);
-        if (pid == task->pid)
+        if (task->page_table[id].p_bit == 0x1)
         {
-            memset(task, 0, sizeof(tTaskStruct));
-            task->pid = -1;
-            return 0;
+            ffree((uint8_t *)ram + task->page_table[id].frame_id * ram->page_size, 1);
         }
     }
-    return -1;
+
+    memset(task, 0, sizeof(tTaskStruct));
+    task->pid = -1;
+    return 0;
 }
 
 const tTaskMgr *get_task_mgr()
 {
     return g_task_mgr;
+}
+
+tTaskStruct *get_task_Struct(int pid)
+{
+    if (g_task_mgr == NULL)
+        return NULL;
+
+    for (uint8_t id = 0; id < MAX_NUM_TASKS; id++)
+    {
+        tTaskStruct *task = &(g_task_mgr->tasks[id]);
+        if (pid == task->pid)
+        {
+            return task;
+        }
+    }
+    return NULL;
 }

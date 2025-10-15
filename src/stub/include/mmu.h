@@ -9,7 +9,7 @@
 void set_page_table(tPageTableEntry *page_table);
 
 // calculates physical_address from virtual_address
-//   returns:  0 - on success and fills physical_address
+//   returns:  0 - on success and fills physical_address relative to start of ram memory location
 //            -1 - page-fault
 //            -2 - segmentation-fault
 //            -3 - physical_address nullptr

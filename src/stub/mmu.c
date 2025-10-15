@@ -25,7 +25,7 @@ int get_physical_address(uint16_t virtual_address, uint16_t *physical_address)
     uint16_t offset_mask = ram->page_size - 1;
     uint16_t id = virtual_address / ram->page_size;
 
-    if (g_page_table[id].r == 0x0 && g_page_table[id].w == 0x0 && g_page_table[id].x == 0x0)
+    if (id >= PAGE_TABLE_SIZE && g_page_table[id].r == 0x0 && g_page_table[id].w == 0x0 && g_page_table[id].x == 0x0)
         return -2;
 
     if (g_page_table[id].p_bit == 0)

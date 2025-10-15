@@ -1,16 +1,21 @@
 #pragma once
 
+#include <stdbool.h>
 #include <stdint.h>
 
-// function loads page content to ram
+#include "types.h"
+
+// pager works with m_bit and r_bit of the page table entry.
+// the algorithm has:
+//   - behavior as described for TODO (4 classes)
+//   - local scope i.e. it may select as victim only frames owned by the task
+//   - reflects task's max_frames configuration if configured
+//   - modified page selected as victim is first written to task's address-space 
+
+// function loads page content in tasks address_space to ram
 //   pid        - task identification
-//   page_id    - page id loaded to ram
-//   data       - page data loaded to ram
+//   virtual_address  - start of page that will be loaded to ram
 //   returns:  0 - success
-//            -1 - out of page frames
+//            -1 - page already in ram
 //            -2 - segmentation fault
-//            -3 - task not found
-int load_page(int pid, uint16_t page_id, const void *data);
-int release_page(int pid, uint16_t page_id);
-int store_page(int pid, uint16_t page_id);
-int restore_page(int pid, uint16_t page_id);
+int page_fault(int pid, uint16_t virtual_address);

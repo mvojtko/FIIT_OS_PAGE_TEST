@@ -4,16 +4,19 @@
 
 #include "types.h"
 
+#define TASK_TABLE_SIZE 8
+
 typedef struct tTaskStruct
 {
-    uint8_t max_frames;  // limit maximum number of pages in ram. If 0 there is no limit
-    int pid;             // process id of task
-    tPageTableEntry page_table[8];  // page_table has always size of 8 pages
+    uint8_t max_frames;    // limit maximum number of pages in ram. If 0 there is no limit
+    int pid;               // process id of task
+    void * address_space;  // handle to content of virtual address space of task 
+    tPageTableEntry page_table[PAGE_TABLE_SIZE];  // page_table has always size of 8 pages
 } tTaskStruct;
 
 typedef struct tTaskMgr
 {
-    tTaskStruct tasks[8];  // storage for task data
+    tTaskStruct tasks[TASK_TABLE_SIZE];  // storage for task data
 } tTaskMgr;
 
 // initializes taskMgr.
@@ -36,7 +39,7 @@ void destroy_taskMgr();
 //          -1 not enough resources to create new task
 //          -2 when input parameters are invalid
 //          -3 the system was not initialized
-int create_task(const tPageTableEntry *page_table, uint8_t max_frames);
+int create_task(const tPageTableEntry *page_table, uint8_t max_frames, void *address_space);
 
 // destroy task in the memory
 // this function:
@@ -47,7 +50,10 @@ int create_task(const tPageTableEntry *page_table, uint8_t max_frames);
 //          -1 task does not exist
 int destroy_task(int pid);
 
-// Returns pointer to a tTaskMgr structure.
+// Returns pointer to a tTaskMgr structure in the ram.
 //  returns - pointer to tTaskMgr
 //          - nullptr when task_mgr is not initialized
 const tTaskMgr *get_task_mgr();
+
+// TODO test this
+tTaskStruct * get_task_Struct(int pid);
