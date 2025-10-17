@@ -45,6 +45,8 @@ class PagerTest : public RamTestBase
         // Initialize task (assume success)
         pid = create_task(page_table, 4, address_space);
         ASSERT_GE(pid, 0) << "Failed to create task before running pager tests.";
+        task = get_task_struct(pid);
+        ASSERT_NE(task, nullptr);
     }
 
     void TearDown()
@@ -53,6 +55,7 @@ class PagerTest : public RamTestBase
     }
 
     int pid;
+    tTaskStruct *task;
     uint8_t address_space[PAGE_SIZE*PAGE_TABLE_SIZE] = {0};  // Example page data
 };
 
@@ -74,7 +77,6 @@ TEST_F(PagerTest, PageFaultAlreadyPresent)
 
 TEST_F(PagerTest, PageFaultOutOfFrames)
 {
-    auto *task = get_task_struct(pid);
     task->page_table[0].p_bit = 0x0;
     // Calculate total frames in memory
     const tRam *ram_state = get_ram_state();

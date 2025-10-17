@@ -1,17 +1,14 @@
 #pragma once
 
-#include <stdbool.h>
 #include <stdint.h>
-
-#include "types.h"
 
 // pager works with m_bit and r_bit of the page table entry.
 // the algorithm has:
-//   - behavior as described for TODO (4 classes)
+//   - behavior as described for NRU (not-recently-used) (4 classes)
 //   - local scope i.e. it may select as victim only frames owned by the task
-//   - reflects task's max_frames configuration if configured
-//   - during page_fault any modified page is first written to task's address-space
-//   - during page_fault r_bit and m_bit of all pages are reset
+//   - respects task's max_frames setting if configured
+//   - during page_fault execution any modified page of task is first written to task's address-space
+//   - during page_fault execution r_bit and m_bit of all task's pages are reset
 
 // function loads page content in tasks address_space to ram
 //   pid        - task identification
