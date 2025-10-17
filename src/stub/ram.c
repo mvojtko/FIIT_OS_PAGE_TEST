@@ -69,22 +69,22 @@ void destroy_ram()
     g_ram = NULL;
 }
 
-void *falloc(uint16_t number)
+int falloc(uint16_t *frame_id, uint16_t number)
 {
     if (g_ram == NULL)
-        return NULL;
+        return -1;
 
-    if (number == 0)
-        return NULL;
+    if (number == 0 || frame_id == NULL)
+        return -1;
 
     uint16_t start_frame_id = 0;
     uint16_t found_number = 0;
-    for (uint16_t frame_id = 0; frame_id < NUM_RAM_FRAMES; frame_id++)
+    for (uint16_t id = 0; id < NUM_RAM_FRAMES; id++)
     {
-        if ((g_ram->bitmap[frame_id / 8] & (0x01 << frame_id % 8)) == 0)
+        if ((g_ram->bitmap[id / 8] & (0x01 << id % 8)) == 0)
         {
             if (found_number == 0)
-                start_frame_id = frame_id;
+                start_frame_id = id;
 
             found_number++;
             if (found_number == number)
@@ -98,28 +98,28 @@ void *falloc(uint16_t number)
 
     if (found_number != number)
     {
-        return NULL;
+        return -1;
     }
 
-    for (uint16_t frame_id = start_frame_id; frame_id < start_frame_id + found_number; frame_id++)
+    for (uint16_t id = start_frame_id; id < start_frame_id + found_number; id++)
     {
-        g_ram->bitmap[frame_id / 8] |= (0x01 << (frame_id % 8));
+        g_ram->bitmap[id / 8] |= (0x01 << (id % 8));
     }
 
-    return (uint8_t *)g_ram + (g_ram->page_size * start_frame_id);
+    *frame_id = start_frame_id;
+    return 0;
 }
 
-void ffree(const void *memory, uint16_t number)
+void ffree(uint16_t frame_id, uint16_t number)
 {
     if (g_ram == NULL)
         return;
 
-    if (memory == NULL || (uint8_t *)memory < (uint8_t *)g_ram || (uint8_t *)memory > ((uint8_t *)g_ram + g_ram->size))
+    uint16_t end_frame_id = frame_id + number;
+    if (end_frame_id > NUM_RAM_FRAMES)
         return;
 
-    uint16_t start_frame_id = ((uint8_t *)memory - (uint8_t *)g_ram) / g_ram->page_size;
-
-    for (uint16_t frame_id = start_frame_id; frame_id < start_frame_id + number; frame_id++)
+    for (; frame_id < end_frame_id; frame_id++)
     {
         g_ram->bitmap[frame_id / 8] &= ~(0x01 << (frame_id % 8));
     }

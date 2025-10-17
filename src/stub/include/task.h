@@ -56,4 +56,4 @@ int destroy_task(int pid);
 const tTaskMgr *get_task_mgr();
 
 // TODO test this
-tTaskStruct * get_task_Struct(int pid);
+tTaskStruct *get_task_struct(int pid);

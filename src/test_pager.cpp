@@ -58,27 +58,49 @@ class PagerTest : public RamTestBase
 
 // --- page_fault() tests ---
 
-TEST_F(PagerTest, LoadPageSuccess)
+TEST_F(PagerTest, PageFaultSuccess)
 {
-    int result = page_fault(pid, 55);
+    // TODO check that all pages has the m_bit and r_bit cleared
+    // TODO check that modified page is also written to address space of process
+    int result = page_fault(pid, PAGE_SIZE);
     EXPECT_EQ(result, 0) << "Expected success when loading a valid page.";
 }
 
-TEST_F(PagerTest, LoadPageOutOfFrames)
+TEST_F(PagerTest, PageFaultAlreadyPresent)
 {
-    int result = page_fault(pid, 99);
-    EXPECT_EQ(result, -1) << "Expected out of page frames.";
+    int result = page_fault(pid, 0);
+    EXPECT_EQ(result, -2) << "Expected fail when loading page that is already present.";
 }
 
-TEST_F(PagerTest, LoadPageSegmentationFault)
+TEST_F(PagerTest, PageFaultOutOfFrames)
+{
+    auto *task = get_task_struct(pid);
+    task->page_table[0].p_bit = 0x0;
+    // Calculate total frames in memory
+    const tRam *ram_state = get_ram_state();
+    ASSERT_NE(ram_state, nullptr);
+    uint16_t total_frames = ram_state->size / ram_state->page_size;
+    uint16_t used_pages = getOccupiedFrames(false, nullptr);
+
+    // Allocate all remaining pages
+    uint16_t frame_id = 0;
+    int ret = falloc(&frame_id, total_frames - used_pages);
+    ASSERT_EQ(ret, 0);
+
+    int result = page_fault(pid, PAGE_SIZE);
+    EXPECT_EQ(result, -3) << "Expected out of page frames.";
+}
+
+TEST_F(PagerTest, PageFaultSegmentationFault)
 {
     int result = 0;
-    EXPECT_NO_FATAL_FAILURE(result = page_fault(pid, 1));
-    EXPECT_EQ(result, -2) << "Expected segmentation fault when data is null.";
+    EXPECT_NO_FATAL_FAILURE(result = page_fault(pid, PAGE_SIZE * 5));
+    EXPECT_EQ(result, -4) << "Expected segmentation fault when data is null.";
 }
 
-TEST_F(PagerTest, LoadPageTaskNotFound)
+TEST_F(PagerTest, PageFaultTaskNotFound)
 {
+    destroy_task(pid);
     int result = page_fault(pid, 14);
-    EXPECT_EQ(result, -3) << "Expected task not found error.";
+    EXPECT_EQ(result, -1) << "Expected task not found error.";
 }

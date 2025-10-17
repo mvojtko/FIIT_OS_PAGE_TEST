@@ -16,10 +16,12 @@ int init_taskMgr()
     if (ram == NULL)
         return -1;
 
-    g_task_mgr = (tTaskMgr *)falloc(NUM_FRAMES(sizeof(tTaskMgr)));
-    
-    if (g_task_mgr == NULL)
+    uint16_t frame_id = 0;
+    int ret = falloc(&frame_id, NUM_FRAMES(sizeof(tTaskMgr)));
+    if (ret != 0)
         return -1;
+
+    g_task_mgr = (tTaskMgr *)((uint8_t *)ram + (frame_id * ram->page_size));
 
     for (uint8_t id = 0; id < 8; id++)
     {
@@ -35,7 +37,9 @@ void destroy_taskMgr()
     if (ram == NULL)
         return;
 
-    ffree((void *)g_task_mgr, NUM_FRAMES(sizeof(tTaskMgr)));
+    uint16_t frame_id = ((uint8_t *)g_task_mgr - (uint8_t *)ram) / ram->page_size;
+
+    ffree(frame_id, NUM_FRAMES(sizeof(tTaskMgr)));
     g_task_mgr = NULL;
 }
 
@@ -74,7 +78,7 @@ int destroy_task(int pid)
     if (g_task_mgr == NULL)
         return -1;
 
-    tTaskStruct *task = get_task_Struct(pid);
+    tTaskStruct *task = get_task_struct(pid);
     if (task == NULL)
         return -1;
 
@@ -82,7 +86,7 @@ int destroy_task(int pid)
     {
         if (task->page_table[id].p_bit == 0x1)
         {
-            ffree((uint8_t *)ram + task->page_table[id].frame_id * ram->page_size, 1);
+            ffree(task->page_table[id].frame_id, 1);
         }
     }
 
@@ -96,7 +100,7 @@ const tTaskMgr *get_task_mgr()
     return g_task_mgr;
 }
 
-tTaskStruct *get_task_Struct(int pid)
+tTaskStruct *get_task_struct(int pid)
 {
     if (g_task_mgr == NULL)
         return NULL;
