@@ -36,6 +36,7 @@ APP_HDR = $(wildcard $(SRC_DIR)/*.h)
 LIB_OBJ = $(patsubst $(LIB_SRC_DIR)/%.c, $(BUILD_DIR)/%.o, $(LIB_SRC))
 APP_OBJ = $(patsubst $(SRC_DIR)/%.cpp, $(BUILD_DIR)/%.o, $(APP_SRC))
 
+# may be used f.ex. "--gtest_list_tests" "--gtest_filter=" or multiple
 DEBUG ?= -d
 
 # Default target: build app (which depends on the library)

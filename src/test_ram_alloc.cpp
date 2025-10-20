@@ -36,9 +36,17 @@ TEST_F(RamAllocTest, AllocateMultiplePages)
     EXPECT_NE(frame_id1, frame_id2);
 }
 
-// TODO test wrong parameters
+TEST_F(RamAllocTest, AllocationFailsInvalidParams)
+{
+    uint16_t frame_id = 0;
+    int ret = falloc(&frame_id, 0);
+    EXPECT_EQ(ret, -1);
+    ret = falloc(nullptr, 1);
+    EXPECT_EQ(ret, -1);
+    ret = falloc(nullptr, 0);
+    EXPECT_EQ(ret, -1);
+}
 
-// --- falloc() should return nullptr if not enough space ---
 TEST_F(RamAllocTest, AllocationFailsOnAllRam)
 {
     // Calculate total frames in memory
@@ -53,20 +61,19 @@ TEST_F(RamAllocTest, AllocationFailsOnAllRam)
     EXPECT_EQ(frame_id, 0);
 }
 
-// --- falloc() should return nullptr if not enough space ---
 TEST_F(RamAllocTest, AllocationFailsWhenNotEnoughSpace)
 {
     // Calculate total frames in memory
     const tRam *ram_state = get_ram_state();
     ASSERT_NE(ram_state, nullptr);
     uint16_t total_frames = ram_state->size / ram_state->page_size;
-    uint16_t used_pages = getOccupiedFrames(false, nullptr);
+    uint16_t used_pages = getOccupiedFrames(nullptr);
 
     // Allocate all remaining pages
     uint16_t frame_id = 0;
     int ret = falloc(&frame_id, total_frames - used_pages);
     CHECK_BOUNDARIES(ret, frame_id);
-    uint16_t occupied_frames = getOccupiedFrames(false, nullptr);
+    uint16_t occupied_frames = getOccupiedFrames(nullptr);
     EXPECT_EQ(occupied_frames, total_frames);
 
     frame_id = 0;
@@ -75,20 +82,19 @@ TEST_F(RamAllocTest, AllocationFailsWhenNotEnoughSpace)
     EXPECT_EQ(frame_id, 0);
 }
 
-// --- falloc() should return nullptr if not enough space ---
 TEST_F(RamAllocTest, FreeSmallBlockWillNotFitBigger)
 {
     // Calculate total frames in memory
     const tRam *ram_state = get_ram_state();
     ASSERT_NE(ram_state, nullptr);
     uint16_t total_frames = ram_state->size / ram_state->page_size;
-    uint16_t used_pages = getOccupiedFrames(false, nullptr);
+    uint16_t used_pages = getOccupiedFrames(nullptr);
 
     // Allocate all remaining pages
     uint16_t frame_id = 0;
     int ret = falloc(&frame_id, total_frames - used_pages);
     CHECK_BOUNDARIES(ret, frame_id);
-    uint16_t occupied_frames = getOccupiedFrames(false, nullptr);
+    uint16_t occupied_frames = getOccupiedFrames(nullptr);
     EXPECT_EQ(occupied_frames, total_frames);
 
     ffree(10, 1);
@@ -99,30 +105,28 @@ TEST_F(RamAllocTest, FreeSmallBlockWillNotFitBigger)
     EXPECT_EQ(frame_id, 0);
 }
 
-// --- falloc() should return nullptr if not enough space ---
 TEST_F(RamAllocTest, FreeBlockWillFitNew)
 {
     // Calculate total frames in memory
     const tRam *ram_state = get_ram_state();
     ASSERT_NE(ram_state, nullptr);
     uint16_t total_frames = ram_state->size / ram_state->page_size;
-    uint16_t used_pages = getOccupiedFrames(false, nullptr);
+    uint16_t used_pages = getOccupiedFrames(nullptr);
 
     // Allocate all remaining pages
     uint16_t frame_id = 0;
     int ret = falloc(&frame_id, total_frames - used_pages);
     CHECK_BOUNDARIES(ret, frame_id);
-    uint16_t occupied_frames = getOccupiedFrames(false, nullptr);
-    EXPECT_EQ(occupied_frames, total_frames);
+    uint16_t occupied_frames = getOccupiedFrames(nullptr);
+    ASSERT_EQ(occupied_frames, total_frames);
 
-    ffree(10, 2);
+    ffree(frame_id, 2);
 
     frame_id = 0;
     ret = falloc(&frame_id, 2);
     CHECK_BOUNDARIES(ret, frame_id);
 }
 
-// --- ffree() should release memory that can then be reallocated ---
 TEST_F(RamAllocTest, FreeThenReallocate)
 {
     uint16_t frame_id1 = 0;
@@ -138,13 +142,11 @@ TEST_F(RamAllocTest, FreeThenReallocate)
     EXPECT_EQ(frame_id1, frame_id2) << "Expected freed memory to be reusable";
 }
 
-// --- ffree() on invalid pointer should not crash ---
 TEST_F(RamAllocTest, FreeInvalidFrameIdDoesNotCrash)
 {
     EXPECT_NO_FATAL_FAILURE(ffree(NUM_FRAMES, 1));
 }
 
-// --- ffree() partially frees memory ---
 TEST_F(RamAllocTest, PartialFreeAndReallocate)
 {
     uint16_t frame_id1 = 0;
@@ -161,7 +163,6 @@ TEST_F(RamAllocTest, PartialFreeAndReallocate)
     EXPECT_EQ(frame_id1 + 1, frame_id2);
 }
 
-// --- Allocation without init should fail ---
 TEST(RamUninitializedTest, FallocFailsIfUninitialized)
 {
     uint16_t frame_id = 0;

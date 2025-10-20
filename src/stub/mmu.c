@@ -12,9 +12,6 @@ void set_page_table(tPageTableEntry *page_table)
 
 int get_physical_address(uint16_t virtual_address, uint16_t *physical_address)
 {
-    if (physical_address == NULL)
-        return -3;
-
     if (g_page_table == NULL)
         return -4;
 
@@ -24,6 +21,9 @@ int get_physical_address(uint16_t virtual_address, uint16_t *physical_address)
 
     uint16_t offset_mask = ram->page_size - 1;
     uint16_t id = virtual_address / ram->page_size;
+
+    if (physical_address == NULL)
+        return -3;
 
     if (id >= PAGE_TABLE_SIZE && g_page_table[id].r == 0x0 && g_page_table[id].w == 0x0 && g_page_table[id].x == 0x0)
         return -2;
@@ -39,7 +39,7 @@ int fetch_instruction(uint16_t virtual_address, uint8_t *data)
 {
     uint16_t phy = 0;
     int ret = get_physical_address(virtual_address, &phy);
-    if (ret != 0)
+    if (ret < -1)
         return ret;
 
     const tRam * ram = get_ram_state();
@@ -47,14 +47,19 @@ int fetch_instruction(uint16_t virtual_address, uint8_t *data)
     if (g_page_table[id].x == 0x0)
         return -3;
 
+    if (ret != 0)
+        return ret;
+
+    g_page_table[id].r_bit = 0x1;
     *data = ((uint8_t *)ram)[phy];
     return 0;
 }
+
 int load_data(uint16_t virtual_address, uint8_t *data)
 {
     uint16_t phy = 0;
     int ret = get_physical_address(virtual_address, &phy);
-    if (ret != 0)
+    if (ret < -1)
         return ret;
 
     const tRam * ram = get_ram_state();
@@ -62,14 +67,19 @@ int load_data(uint16_t virtual_address, uint8_t *data)
     if (g_page_table[id].r == 0x0)
         return -3;
 
+    if (ret != 0)
+        return ret;
+
+    g_page_table[id].r_bit = 0x1;
     *data = ((uint8_t *)ram)[phy];
     return 0;
 }
+
 int store_data(uint16_t virtual_address, uint8_t data)
 {
     uint16_t phy = 0;
     int ret = get_physical_address(virtual_address, &phy);
-    if (ret != 0)
+    if (ret < -1)
         return ret;
 
     const tRam * ram = get_ram_state();
@@ -77,6 +87,11 @@ int store_data(uint16_t virtual_address, uint8_t data)
     if (g_page_table[id].w == 0x0)
         return -3;
 
+    if (ret != 0)
+        return ret;
+
+    g_page_table[id].m_bit = 0x1;
+    g_page_table[id].r_bit = 0x1;
     ((uint8_t *)ram)[phy] = data;
     return 0;
 }

@@ -25,7 +25,6 @@ int page_fault(int pid, uint16_t virtual_address)
     if (entry->p_bit == 0x1)
         return -2;
 
-    // TODO if the number of frames reaches max need to find victim
     uint8_t cnt = 0;
     uint8_t score = 0;
     uint8_t victim_id = 0;

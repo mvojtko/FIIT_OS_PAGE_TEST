@@ -48,7 +48,7 @@ class MMUTest : public ::testing::Test
 
 TEST_F(MMUTest, GetPhysicalAddressFailsWithNullPointer)
 {
-    set_page_table(nullptr);
+    SetTableEntry(0x1234 / PAGE_SIZE, {.r = 0x1});
     int ret = get_physical_address(0x1234, nullptr);
     EXPECT_EQ(ret, -3);
 }

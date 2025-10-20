@@ -92,7 +92,15 @@ class RamParamTest : public ::testing::TestWithParam<InitRamCase>
     uint8_t buffer[kBufferSize];
 };
 
-uint16_t getOccupiedFrames(const tRam &ram, bool print, bool *isContinuous)
+uint8_t reversByte(uint8_t b)
+{
+    b = (b & 0xF0) >> 4 | (b & 0x0F) << 4;
+    b = (b & 0xCC) >> 2 | (b & 0x33) << 2;
+    b = (b & 0xAA) >> 1 | (b & 0x55) << 1;
+    return b;
+}
+
+uint16_t getOccupiedFrames(const tRam &ram, bool *isContinuous)
 {
     uint8_t *bitmap = ram.bitmap;
     uint16_t num_frames = ram.size / ram.page_size;
@@ -105,17 +113,19 @@ uint16_t getOccupiedFrames(const tRam &ram, bool print, bool *isContinuous)
     uint16_t occupiedFrames = 0;
     bool blockStarted = false;
     bool blockEnded = false;
+    dprintf("Ram frames bitmask:");
     for (uint16_t byte_id = 0; byte_id < bitmapSize; byte_id++)
     {
         uint8_t byte = bitmap[byte_id];
-        if (print)
+
+        if ((byte_id % 64) == 0)
         {
-            if ((byte_id % 16) == 0)
-                printf("\n0x%03x ->", byte_id);
-            if ((byte_id % 4) == 0)
-                printf(" ");
-            printf("%02x", byte);
+            dprintf("\n0x%03x ->", byte_id);
         }
+        if ((byte_id % 4) == 0)
+            dprintf(" ");
+        dprintf("%02x", reversByte(byte));
+
         for (uint8_t bit = 0x01; bit != 0x00; bit <<= 1)
         {
             if (byte & bit)
@@ -133,18 +143,39 @@ uint16_t getOccupiedFrames(const tRam &ram, bool print, bool *isContinuous)
             }
         }
     }
-    if (print)
-        printf("\n");
+    dprintf("\n");
     return occupiedFrames;
 }
 
-uint16_t RamTestBase::getOccupiedFrames(bool print, bool *isContinuous)
+uint16_t RamTestBase::getOccupiedFrames(bool *isContinuous)
 {
     const tRam *ret = get_ram_state();
     if (ret)
-        return ::getOccupiedFrames(*ret, print, isContinuous);
+        return ::getOccupiedFrames(*ret, isContinuous);
 
     return 0;
+}
+
+void RamTestBase::dumpRamState()
+{
+    const tRam *ram = get_ram_state();
+    if (ram == NULL)
+        return;
+
+    dprintf("Ram content:");
+    for (uint16_t byte_id = 0; byte_id < ram->size; byte_id++)
+    {
+        uint8_t byte = ((const uint8_t *)ram)[byte_id];
+
+        if ((byte_id % 64) == 0)
+        {
+            dprintf("\n0x%03x ->", byte_id);
+        }
+        if ((byte_id % 4) == 0)
+            dprintf(" ");
+        dprintf("%02x", byte);
+    }
+    dprintf("\n");
 }
 
 TEST_P(RamParamTest, InitRam)
@@ -170,7 +201,7 @@ TEST_P(RamParamTest, GetRamState)
     uint16_t expectedOccupiedFrames = (occupiedBytes / p.page_size) + ((occupiedBytes % p.page_size) ? 1 : 0);
 
     bool isContinuous = true;
-    uint16_t occupiedFrames = getOccupiedFrames(*ret, true, &isContinuous);
+    uint16_t occupiedFrames = getOccupiedFrames(*ret, &isContinuous);
 
     EXPECT_EQ(occupiedFrames, expectedOccupiedFrames);
     EXPECT_TRUE(isContinuous);

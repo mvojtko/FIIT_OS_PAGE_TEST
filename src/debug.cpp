@@ -17,9 +17,8 @@ int dprintf(const char *fmt, ...)
         return 0;
     va_list args;
     va_start(args, fmt);
-    printf("debug: ");
 
-    int ret = vprintf(fmt, args);
+    int ret = vfprintf(stderr, fmt, args);
 
     va_end(args);
     return ret;

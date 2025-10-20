@@ -55,5 +55,7 @@ int destroy_task(int pid);
 //          - nullptr when task_mgr is not initialized
 const tTaskMgr *get_task_mgr();
 
-// TODO test this
+// Returns pointer to tTaskStruct for pid
+//  returns - pointer to existing task
+//          - nullptr when task was not found
 tTaskStruct *get_task_struct(int pid);

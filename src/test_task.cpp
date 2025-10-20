@@ -149,3 +149,25 @@ TEST_F(TaskManagerTest, DestroyNonexistentTask)
     EXPECT_EQ(destroy_task(5), -1);
     EXPECT_EQ(destroy_task(9999), -1);
 }
+
+TEST_F(TaskManagerTest, GetTaskStructWithoutInitFails)
+{
+    destroy_taskMgr();  // simulate uninitialized state
+    EXPECT_EQ(get_task_struct(1), nullptr);
+}
+
+TEST_F(TaskManagerTest, GetTaskStructExistingTask)
+{
+    int pid = create_task(page_table.data(), 2, address_space);
+    ASSERT_GE(pid, 0);
+
+    tTaskStruct *task = get_task_struct(pid);
+    EXPECT_NE(task, nullptr);
+    EXPECT_EQ(task->pid, pid);
+}
+
+TEST_F(TaskManagerTest, GetTaskStructNonexistentTask)
+{
+    EXPECT_EQ(get_task_struct(5), nullptr);
+    EXPECT_EQ(get_task_struct(9999), nullptr);
+}
