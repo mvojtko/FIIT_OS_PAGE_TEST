@@ -2,20 +2,20 @@
 
 #include <stdint.h>
 
-// pager works with m_bit and r_bit of the page table entry.
-// the algorithm has:
-//   - behavior as described for NRU (not-recently-used) (4 classes)
-//   - local scope i.e. it may select as victim only frames owned by the task
-//   - respects task's max_frames setting if configured
-//   - during page_fault execution any modified page of task is first written to task's address-space
-//   - during page_fault execution r_bit and m_bit of all task's pages are reset
+// The paging algorithm works with the m_bit and r_bit fields of the page table entry.
+// The algorithm has the following properties:
+//   - Behavior as described for the NRU (Not Recently Used) algorithm (4 classes).
+//   - Local scope, i.e., it may select as a victim only frames owned by the task.
+//   - Respects the task's max_frames setting if configured.
+//   - During page_fault execution, all modified pages of the task are first written to the task's address space.
+//   - During page_fault execution, the r_bit and m_bit of all the task's pages are cleared.
 
-// function loads page content in tasks address_space to ram
-//   pid        - task identification
-//   virtual_address  - start of page that will be loaded to ram
-//   returns:  0 - success
-//            -1 - task not found
-//            -2 - page already in ram
-//            -3 - out of resources
-//            -4 - segmentation fault
+// Loads the page content from the task's address space into RAM.
+//   pid              - Task identifier.
+//   virtual_address  - Address of data with missing frame in the RAM.
+//   Returns:  0  - Success
+//            -1  - Task not found
+//            -2  - Page already in RAM
+//            -3  - Out of resources
+//            -4  - Segmentation fault
 int page_fault(int pid, uint16_t virtual_address);
