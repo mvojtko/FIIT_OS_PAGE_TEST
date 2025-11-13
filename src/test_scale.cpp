@@ -134,15 +134,14 @@ TEST_F(Scale, CheckNoFramesLoaded)
 TEST_F(Scale, CallPageFaultOnEachPage)
 {
     LoadTasks();
-    for (uint8_t id = TASK_TABLE_SIZE; id > 0; id--)
+    for (int8_t id = TASK_TABLE_SIZE - 1; id >= 0; id--)
     {
-        auto *task = get_task_struct(tasks[id - 1]);
+        auto *task = get_task_struct(tasks[id]);
         ASSERT_NE(task, nullptr);
         set_page_table(task->page_table);
         for (uint8_t page_id = 0; page_id < PAGE_TABLE_SIZE; page_id++)
         {
-            uint8_t task_stored_data =
-                address_spaces[(task->pid * PAGE_TABLE_SIZE + page_id) * PAGE_SIZE + PAGE_SIZE / 2];
+            uint8_t task_stored_data = address_spaces[(id * PAGE_TABLE_SIZE + page_id) * PAGE_SIZE + PAGE_SIZE / 2];
             uint16_t address = page_id * PAGE_SIZE + PAGE_SIZE / 2;
             uint8_t data = 0;
             dprintf("Testing: task pid %d page %u\n", task->pid, page_id);
@@ -200,17 +199,16 @@ TEST_F(Scale, CallPageFaultWithAllTasksHavingOnePageInRam)
 {
     LoadTasks();
     LoadOnePage();
-    for (uint8_t id = TASK_TABLE_SIZE; id > 0; id--)
+    for (int8_t id = TASK_TABLE_SIZE - 1; id >= 0; id--)
     {
-        auto *task = get_task_struct(tasks[id - 1]);
+        auto *task = get_task_struct(tasks[id]);
 
         ASSERT_NE(task, nullptr);
         set_page_table(task->page_table);
         for (uint8_t page_id = 1; page_id < PAGE_TABLE_SIZE; page_id++)
         {
             dprintf("Testing: task pid %d page %u\n", task->pid, page_id);
-            uint8_t task_stored_data =
-                address_spaces[(task->pid * PAGE_TABLE_SIZE + page_id) * PAGE_SIZE + PAGE_SIZE / 2];
+            uint8_t task_stored_data = address_spaces[(id * PAGE_TABLE_SIZE + page_id) * PAGE_SIZE + PAGE_SIZE / 2];
             uint16_t address = page_id * PAGE_SIZE + PAGE_SIZE / 2;
             uint8_t data = 0;
             int page_fault_res = page_fault(task->pid, address);
@@ -262,9 +260,9 @@ TEST_F(Scale, CallPageFaultWithAllTasksHavingOnePageInRamModifiedWrittenToAddres
 {
     LoadTasks();
     LoadOnePage();
-    for (uint8_t id = TASK_TABLE_SIZE; id > 0; id--)
+    for (int8_t id = TASK_TABLE_SIZE - 1; id >= 0; id--)
     {
-        auto *task = get_task_struct(tasks[id - 1]);
+        auto *task = get_task_struct(tasks[id]);
 
         ASSERT_NE(task, nullptr);
         set_page_table(task->page_table);
@@ -280,7 +278,7 @@ TEST_F(Scale, CallPageFaultWithAllTasksHavingOnePageInRamModifiedWrittenToAddres
             if (previous_page_id != 0)
             {
                 uint8_t task_stored_data =
-                    address_spaces[(task->pid * PAGE_TABLE_SIZE + previous_page_id) * PAGE_SIZE + PAGE_SIZE / 2];
+                    address_spaces[(id * PAGE_TABLE_SIZE + previous_page_id) * PAGE_SIZE + PAGE_SIZE / 2];
                 EXPECT_EQ(0xdd, task_stored_data);
                 EXPECT_EQ(task->page_table[previous_page_id].m_bit, 0x0);
             }
