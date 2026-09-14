@@ -2,17 +2,23 @@
 
 #include <stdint.h>
 
-#define PAGE_TABLE_SIZE 8
+#define TASK_STATE_READY 0x0
+#define TASK_STATE_BLOCKED 0x1
+#define TASK_STATE_TERMINATED 0x3
 
-typedef struct tPageTableEntry
+#define TASK_SIG_TERM 0x1
+#define TASK_SIG_CHILD 0x2
+
+typedef int tPid;
+
+typedef struct tTaskStruct
 {
-    uint8_t r : 1;  // Read access.
-    uint8_t w : 1;  // Write access.
-    uint8_t x : 1;  // Execute access.
-    // rwx = 000 means the page is not available to the task; access to address within this page will cause a
-    // segmentation fault.
-    uint8_t p_bit : 1;  // Page is present in RAM.
-    uint8_t r_bit : 1;  // Page has been referenced.
-    uint8_t m_bit : 1;  // Page has been modified.
-    uint16_t frame_id;  // Assigned frame in RAM if p_bit is set.
-} tPageTableEntry;
+    tPid pid;              // Process ID of the task.
+    tPid ppid;             // Parent process ID of the task.
+    int priority;         // Priority of the task.
+    int signals;          // Signals of the task.
+    int state;            // State of the task.
+    int exit_code;        // Exit code of the task.
+    int runtime;          // total runtime of the task.
+    int uid;              // User ID of the task.
+} tTaskStruct;

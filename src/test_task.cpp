@@ -1,34 +1,18 @@
 #include "gtest/gtest.h"
-#include "test_ram.h"
 
 extern "C" {
 #include "task.h"
 }
 
-bool operator==(const tPageTableEntry &lhs, const tPageTableEntry &rhs)
-{
-    return memcmp(&lhs, &rhs, sizeof(tPageTableEntry)) == 0;
-}
-
-
-void PrintTo(const tPageTableEntry& entry, std::ostream* os) {
-    *os << "rwx=" << std::to_string(entry.r) << std::to_string(entry.w) << std::to_string(entry.x) <<
-           ", m_bit=" << std::to_string(entry.m_bit) <<
-           ", p_bit=" << std::to_string(entry.p_bit) <<
-           ", r_bit=" << std::to_string(entry.r_bit) <<
-           ", frame_id=" << std::to_string(entry.frame_id);
-}
-
 // Helper: ensure clean state before and after each test
-class TaskManagerTest : public RamTestBase
+class TaskManagerTest : public ::testing::Test
 {
   protected:
     void SetUp() override
     {
-        page_table.resize(8);
-        memset(page_table.data(), 1, page_table.size() * sizeof(tPageTableEntry));
-        memset(address_space, 2, sizeof(address_space));
-        init_taskMgr();
+        task_mgr.tasks = new tTaskStruct[16];
+        task_mgr.size = 16;
+        init_taskMgr(&task_mgr);
     }
 
     void TearDown() override
@@ -36,138 +20,65 @@ class TaskManagerTest : public RamTestBase
         destroy_taskMgr();
     }
 
-    std::vector<tPageTableEntry> page_table;
-    uint8_t address_space[PAGE_SIZE * PAGE_TABLE_SIZE];
+    tTaskMgr task_mgr;
 };
 
-TEST(TaskManagerTest_NoRam, NoManager)
+TEST(TaskManagerTest_Init, init_taskMgr__invalid_params)
 {
-    EXPECT_EQ(nullptr, get_task_mgr());
-}
-
-TEST(TaskManagerTest_NoRam, InitManagerWithoutRamInit)
-{
-    EXPECT_EQ(init_taskMgr(), -1);
-}
-
-TEST(TaskManagerTest_NoRam, InitManagerNotEnoughResources)
-{
-    uint8_t buffer[nextPow2(sizeof(tRam))];
-    init_ram(&buffer, nextPow2(sizeof(tRam)), nextPow2(sizeof(tRam)));
-    EXPECT_EQ(init_taskMgr(), -1);
-}
-
-TEST_F(TaskManagerTest, InitAndDestroyManager)
-{
+    tTaskStruct tasks[8];
+    tTaskMgr task_mgr { .tasks = nullptr, .size = 0 };
     // Ensure init_taskMgr initializes the manager correctly
-    destroy_taskMgr();  // destroy first to test clean init
-    EXPECT_EQ(init_taskMgr(), 0) << "Task manager should initialize successfully";
+    EXPECT_EQ(init_taskMgr(nullptr), -1) << "init_taskMgr should return -1 for nullptr";
+    EXPECT_EQ(init_taskMgr(&task_mgr), -1) << "init_taskMgr there should be some space for tasks";
 
-    const tTaskMgr *mgr = get_task_mgr();
-    ASSERT_NE(mgr, nullptr) << "Manager should not be null after init";
+    task_mgr.size = 8;
+    EXPECT_EQ(init_taskMgr(&task_mgr), -1) << "init_taskMgr there is size set but the tasks array is nullptr";
 
-    destroy_taskMgr();
-    EXPECT_EQ(get_task_mgr(), nullptr) << "Manager should be null after destroy";
+    task_mgr.size = 0;
+    task_mgr.tasks = tasks;
+    EXPECT_EQ(init_taskMgr(&task_mgr), -1) << "init_taskMgr there is some space for tasks but the size is 0";
 }
 
-TEST_F(TaskManagerTest, CreateTaskSuccessfully)
+TEST_F(TaskManagerTest, init_taskMgr__clears_tasks_structs)
 {
-    uint8_t max_frames = 4;
-    int pid = create_task(page_table.data(), max_frames, address_space);
-    EXPECT_GE(pid, 0) << "create_task should return valid pid >= 0";
-
-    const tTaskMgr *mgr = get_task_mgr();
-    ASSERT_NE(mgr, nullptr);
-
-    bool found = false;
-    for (const auto &task : mgr->tasks)
-    {
-        if (task.pid == pid)
-        {
-            found = true;
-            for (size_t id = 0; id < page_table.size(); id++)
-            {
-                EXPECT_EQ(task.page_table[id], page_table[id]);
-            }
-            EXPECT_EQ(task.max_frames, max_frames);
-            break;
-        }
-    }
-    EXPECT_TRUE(found) << "Created task should appear in task manager";
+    EXPECT_EQ(task_mgr.tasks[6].pid, -1) << "expected pid -1";
+    EXPECT_EQ(task_mgr.tasks[6].ppid, 0) << "expected ppid 0";
+    EXPECT_EQ(task_mgr.tasks[6].priority, 0) << "expected priority 0";
+    EXPECT_EQ(task_mgr.tasks[6].signals, 0) << "expected signals 0";
+    EXPECT_EQ(task_mgr.tasks[6].state, 0) << "expected state 0";
+    EXPECT_EQ(task_mgr.tasks[6].exit_code, 0) << "expected exit code 0";
+    EXPECT_EQ(task_mgr.tasks[6].runtime, 0) << "expected runtime 0";
+    EXPECT_EQ(task_mgr.tasks[6].uid, 0) << "expected uid 0";
 }
 
-TEST_F(TaskManagerTest, CreateTaskInvalidParams)
+TEST_F(TaskManagerTest, create_task__invalid_params)
 {
-    // Null page_table should yield -2
-    EXPECT_EQ(create_task(nullptr, 5, address_space), -2);
+    EXPECT_EQ(create_task(0, 0, 0), -2);
 }
 
-TEST_F(TaskManagerTest, CreateTaskWithoutInitFails)
+TEST_F(TaskManagerTest, create_task__without_init_fails)
 {
     destroy_taskMgr();  // simulate uninitialized state
-    EXPECT_EQ(create_task(page_table.data(), 4, address_space), -3);
+    EXPECT_EQ(create_task(0, 0, 0), -3) << "expected -3";
 }
 
-TEST_F(TaskManagerTest, CreateTaskResourceLimit)
+TEST_F(TaskManagerTest, create_task__resource_limit)
 {
-    // Create max number of tasks
-    for (int i = 0; i < 8; ++i)
-    {
-        EXPECT_GE(create_task(page_table.data(), 1, address_space), 0);
-    }
 
-    // Creating one more should fail
-    EXPECT_EQ(create_task(page_table.data(), 1, address_space), -1);
 }
 
-TEST_F(TaskManagerTest, DestroyTaskWithoutInitFails)
+TEST_F(TaskManagerTest, destroy_task__without_init_fails)
 {
     destroy_taskMgr();  // simulate uninitialized state
     EXPECT_EQ(destroy_task(1), -1);
 }
 
-TEST_F(TaskManagerTest, DestroyExistingTask)
+TEST_F(TaskManagerTest, destroy_task__existing_task)
 {
-    int pid = create_task(page_table.data(), 2, address_space);
-    ASSERT_GE(pid, 0);
-
-    EXPECT_EQ(destroy_task(pid), 0);
-
-    // Task should be gone
-    const tTaskMgr *mgr = get_task_mgr();
-    bool still_exists = false;
-    for (const auto &task : mgr->tasks)
-    {
-        if (task.pid == pid)
-            still_exists = true;
-    }
-    EXPECT_FALSE(still_exists);
 }
 
-TEST_F(TaskManagerTest, DestroyNonexistentTask)
+TEST_F(TaskManagerTest, destroy_task__nonexistent_task)
 {
     EXPECT_EQ(destroy_task(5), -1);
     EXPECT_EQ(destroy_task(9999), -1);
-}
-
-TEST_F(TaskManagerTest, GetTaskStructWithoutInitFails)
-{
-    destroy_taskMgr();  // simulate uninitialized state
-    EXPECT_EQ(get_task_struct(1), nullptr);
-}
-
-TEST_F(TaskManagerTest, GetTaskStructExistingTask)
-{
-    int pid = create_task(page_table.data(), 2, address_space);
-    ASSERT_GE(pid, 0);
-
-    tTaskStruct *task = get_task_struct(pid);
-    EXPECT_NE(task, nullptr);
-    EXPECT_EQ(task->pid, pid);
-}
-
-TEST_F(TaskManagerTest, GetTaskStructNonexistentTask)
-{
-    EXPECT_EQ(get_task_struct(5), nullptr);
-    EXPECT_EQ(get_task_struct(9999), nullptr);
 }

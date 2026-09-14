@@ -1,117 +1,55 @@
-#include <stdbool.h>
-#include <string.h>
+#include <stdint.h>
 
-#include "pager.h"
-#include "ram.h"
 #include "task.h"
+#include "types.h"
 
-static tTaskMgr *g_task_mgr = NULL;
-
-#define MAX_NUM_TASKS sizeof(g_task_mgr->tasks)/sizeof(tTaskStruct)
-#define NUM_FRAMES(bytes) ((bytes) / ram->page_size) + (((bytes) % ram->page_size) ? 1 : 0)
-
-int init_taskMgr()
+int init_taskMgr(tTaskMgr *task_mgr)
 {
-    const tRam *ram = get_ram_state();
-    if (ram == NULL)
-        return -1;
-
-    uint16_t frame_id = 0;
-    int ret = falloc(&frame_id, NUM_FRAMES(sizeof(tTaskMgr)));
-    if (ret != 0)
-        return -1;
-
-    g_task_mgr = (tTaskMgr *)((uint8_t *)ram + (frame_id * ram->page_size));
-
-    for (uint8_t id = 0; id < 8; id++)
-    {
-        g_task_mgr->tasks[id].pid = -1;
-    }
-
+    (void)task_mgr;
     return 0;
 }
 
 void destroy_taskMgr()
 {
-    const tRam *ram = get_ram_state();
-    if (ram == NULL)
-        return;
 
-    uint16_t frame_id = ((uint8_t *)g_task_mgr - (uint8_t *)ram) / ram->page_size;
-
-    ffree(frame_id, NUM_FRAMES(sizeof(tTaskMgr)));
-    g_task_mgr = NULL;
 }
 
-int create_task(const tPageTableEntry *page_table, uint8_t max_frames, void *address_space)
+tPid create_task(int priority, tPid ppid, int uid)
 {
-    if (page_table == NULL)
-        return -2;
-
-    if (address_space == NULL)
-        return -2;
-
-    if (g_task_mgr == NULL)
-        return -3;
-
-    for (uint8_t id = 0; id < MAX_NUM_TASKS; id ++)
-    {
-        tTaskStruct *task = &(g_task_mgr->tasks[id]);
-        if (task->pid == -1)
-        {
-            task->max_frames = max_frames;
-            task->pid = id;
-            task->address_space = address_space;
-            memcpy(&task->page_table, page_table, 8*sizeof(tPageTableEntry));
-            return id;
-        }
-    }
-    return -1;  
-}
-
-int destroy_task(int pid)
-{
-    const tRam *ram = get_ram_state();
-    if (ram == NULL)
-        return -1;
-
-    if (g_task_mgr == NULL)
-        return -1;
-
-    tTaskStruct *task = get_task_struct(pid);
-    if (task == NULL)
-        return -1;
-
-    for (uint8_t id = 0; id < PAGE_TABLE_SIZE; id++)
-    {
-        if (task->page_table[id].p_bit == 0x1)
-        {
-            ffree(task->page_table[id].frame_id, 1);
-        }
-    }
-
-    memset(task, 0, sizeof(tTaskStruct));
-    task->pid = -1;
+    (void)priority;
+    (void)ppid;
+    (void)uid;
     return 0;
 }
 
-const tTaskMgr *get_task_mgr()
+int terminate_task(tPid pid, int exit_code)
 {
-    return g_task_mgr;
+    (void)pid;
+    (void)exit_code;
+    return 0;
 }
 
-tTaskStruct *get_task_struct(int pid)
+int destroy_task(tPid pid)
 {
-    if (g_task_mgr == NULL)
-        return NULL;
+    (void)pid;
+    return 0;
+}
 
-    for (uint8_t id = 0; id < MAX_NUM_TASKS; id++)
-    {
-        tTaskStruct *task = &(g_task_mgr->tasks[id]);
-        if (pid == task->pid)
-        {
-            return task;
-        }
-    }
-    return NULL;
+int send_signal(tPid pid, int signal)
+{
+    (void)pid;
+    (void)signal;
+    return 0;
+}
+
+int block_task(tPid pid)
+{
+    (void)pid;
+    return 0;
+}
+
+int unblock_task(tPid pid)
+{
+    (void)pid;
+    return 0;
 }

@@ -4,62 +4,77 @@
 
 #include "types.h"
 
-#define TASK_TABLE_SIZE 8
-
-typedef struct tTaskStruct
-{
-    uint8_t max_frames;   // Limits the maximum number of task pages in RAM. If 0, there is no limit.
-    int pid;              // Process ID of the task.
-    void *address_space;  // Handle to the content of the task's virtual address space.
-    tPageTableEntry page_table[PAGE_TABLE_SIZE];  // The task`s page table.
-} tTaskStruct;
-
 typedef struct tTaskMgr
 {
-    tTaskStruct tasks[TASK_TABLE_SIZE];  // Storage for task data.
+    tTaskStruct *tasks; // Storage for data of tasks.
+    int size; // Maximum number of tasks in the task manager.
 } tTaskMgr;
 
 // Initializes the task manager.
 // This function:
-//   - Reserves space in RAM for tTaskMgr (i.e. consumes one or more frames).
+//   - Takes a pointer to the tTaskMgr structure and initialzies all elements.
 // Returns:
-//    0  - Success.
-//   -1  - Not enough resources.
-int init_taskMgr();
+//    0  Success.
+//   -1  Invalid input parameters.
+int init_taskMgr(tTaskMgr *task_mgr);
 
-// Destroys the task manager and releases all resources in RAM.
+// Destroys the task manager and releases all resources.
 void destroy_taskMgr();
 
 // Creates a new task in memory.
 // This function:
 //   - Finds and fills a tTaskStruct entry in the task manager.
 //   - Assigns a PID to the task.
-//   - Copies the initial page table of the task.
-//   - Expects that no initial frames are consumed by this function.
+//   - Sets the parent process ID to the given ppid.
+//   - Sets the user ID to the given uid.
+//   - Sets the priority to the given priority.
+//   - Sets all other fields to default values.
 // Returns:
 //    PID on success.
 //   -1  Not enough resources to create a new task.
 //   -2  Invalid input parameters.
 //   -3  The system was not initialized.
-int create_task(const tPageTableEntry *page_table, uint8_t max_frames, void *address_space);
+tPid create_task(int priority, tPid ppid, int uid);
 
-// Destroys a task in memory.
+// Terminates a task.
 // This function:
-//   - Cleans and marks the corresponding tTaskStruct entry in the task manager as free (sets PID to -1).
-//   - Releases all frames of the task from RAM.
+//   - Cleans and marks the corresponding tTaskStruct entry in the task manager as terminated.
+//   - Stores exit code to its tTaskStruct entry.
+//   - Signals parent process that the child has been destroyed.
 // Returns:
 //    0  Success.
 //   -1  Task does not exist.
-int destroy_task(int pid);
+int terminate_task(tPid pid, int exit_code);
 
-// Returns a pointer to the tTaskMgr structure in RAM.
+// Destroys a task.
+// This function:
+//   - Cleans corresponding tTaskStruct entry in the task manager nad sets PID to -1.
 // Returns:
-//   Pointer to tTaskMgr.
-//   nullptr if the task manager is not initialized.
-const tTaskMgr *get_task_mgr();
+//    0  Success.
+//   -1  Task does not exist.
+int destroy_task(tPid pid);
 
-// Returns a pointer to the tTaskStruct for the given PID.
+// Sends a signal to a task.
+// This function:
+//   - Sends a signal to the corresponding tTaskStruct entry in the task manager.
 // Returns:
-//   Pointer to the existing task.
-//   nullptr if the task was not found.
-tTaskStruct *get_task_struct(int pid);
+//    0  Success.
+//   -1  Task does not exist.
+int send_signal(tPid pid, int signal);
+
+// Blocks a task.
+// This function:
+//   - Blocks the corresponding tTaskStruct entry in the task manager.
+//     This causes the task will not be scheduled until it is unblocked.
+// Returns:
+//    0  Success.
+//   -1  Task does not exist.
+int block_task(tPid pid);
+
+// Unblocks a task.
+// This function:
+//   - Unblocks the corresponding tTaskStruct entry in the task manager.
+// Returns:
+//    0  Success.
+//   -1  Task does not exist.
+int unblock_task(tPid pid);
