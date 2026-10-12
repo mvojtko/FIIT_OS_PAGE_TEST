@@ -513,15 +513,16 @@ static tPid pick_runnable(void)
 void init_scheduler(tScheduler *scheduler)
 {
     g_scheduler = scheduler;
-    g_rng = 1;
     if (scheduler == NULL)
     {
+        g_rng = 1;
         return;
     }
 
     scheduler->current_task = -1;
     scheduler->task_runtime = 0;
     scheduler->total_runtime = -1;
+    g_rng = scheduler->seed;
 }
 
 void destroy_scheduler(void)
@@ -531,7 +532,7 @@ void destroy_scheduler(void)
 
 int32_t get_total_runtime(void)
 {
-    if (g_scheduler == NULL)
+    if (g_scheduler == NULL || g_scheduler->total_runtime < 0)
     {
         return 0;
     }
@@ -553,18 +554,20 @@ tPid schedule(void)
 
     // increase the runtime of previous task
     if ( g_scheduler->current_task >= 0)
-        g_scheduler->task_runtime++;
+    {
+        tTaskStruct *current = find_task_in_mgr(g_scheduler->current_task);
+        if (current != NULL)
+        {
+            g_scheduler->task_runtime++;
+            current->runtime++;
+        }
+    }
 
     g_scheduler->total_runtime++;
 
     tPid next = pick_runnable();
     if (next != g_scheduler->current_task)
     {
-        tTaskStruct *old = find_task_in_mgr(g_scheduler->current_task);
-        if (old != NULL)
-        {
-            old->runtime += g_scheduler->task_runtime;
-        }
         g_scheduler->current_task = next;
         g_scheduler->task_runtime = 0;
     }

@@ -208,7 +208,37 @@ TEST_F(TaskManagerTest, create_task__reuses_slot_after_destroy)
     EXPECT_EQ(create_task(0, 0, 0), -1);
 
     EXPECT_EQ(destroy_task(first), 0);
-    EXPECT_GT(create_task(0, 0, 0), 0) << "freed slot should be reusable";
+    auto reused = create_task(0, 0, 0);
+    EXPECT_GT(reused, 0) << "freed slot should be reusable";
+    EXPECT_EQ(reused, first) << "freed PID should be reused";
+}
+
+TEST_F(TaskManagerTest, create_task__reuses_pid_after_destroy)
+{
+    tPid pid;
+    for (int i = 0; i < 5; i++)
+        pid = create_task(0, 0, 0);
+
+    for (int i = 0; i < 5; i++)
+        create_task(0, 0, 0);
+
+    destroy_task(pid);
+    tPid new_pid = create_task(0, 0, 0);
+    EXPECT_EQ(pid, new_pid) << "PID must be reused so the counter cannot grow without bound";
+}
+
+TEST_F(TaskManagerTest, create_task__zombie_holds_pid_until_reaped)
+{
+    auto pid = create_task(0, 0, 0);
+    ASSERT_EQ(pid, 1);
+    ASSERT_EQ(terminate_task(pid, 0), 0);
+
+    auto other = create_task(0, 0, 0);
+    EXPECT_EQ(other, 2) << "zombie still owns its PID";
+
+    ASSERT_EQ(destroy_task(pid), 0);
+    auto reused = create_task(0, 0, 0);
+    EXPECT_EQ(reused, 1) << "PID is recycled only after the task entry is destroyed";
 }
 
 TEST_F(TaskManagerTest, terminate_task__pid_0_fails)

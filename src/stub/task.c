@@ -1,3 +1,4 @@
+#include <limits.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -6,7 +7,6 @@
 #include "scheduler.h"
 
 static tTaskMgr *g_task_mgr = NULL;
-static tPid g_next_pid = 1;
 
 static void set_free_slot(tTaskStruct *task)
 {
@@ -51,6 +51,19 @@ static int is_zombie(const tTaskStruct *task)
     return task != NULL && task->state == TASK_STATE_TERMINATED;
 }
 
+static tPid allocate_pid(void)
+{
+    for (tPid pid = 1; pid < INT16_MAX; pid++)
+    {
+        if (find_task(pid) == NULL)
+        {
+            return pid;
+        }
+    }
+
+    return -1;
+}
+
 int init_taskMgr(tTaskMgr *task_mgr)
 {
     if (task_mgr == NULL || task_mgr->tasks == NULL || task_mgr->size == 0)
@@ -67,7 +80,6 @@ int init_taskMgr(tTaskMgr *task_mgr)
     task_mgr->tasks[0].ppid = -1;
 
     g_task_mgr = task_mgr;
-    g_next_pid = 1;
 
     return 0;
 }
@@ -106,8 +118,14 @@ tPid create_task(uint8_t priority, tPid ppid, uint8_t uid)
         return -1;
     }
 
+    tPid pid = allocate_pid();
+    if (pid < 0)
+    {
+        return -1;
+    }
+
     memset(slot, 0, sizeof(*slot));
-    slot->pid = g_next_pid++;
+    slot->pid = pid;
     slot->ppid = ppid;
     slot->priority = priority;
     slot->state = TASK_STATE_READY;

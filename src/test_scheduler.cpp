@@ -54,6 +54,7 @@ class SchedulerTest : public ::testing::Test
             .current_task = static_cast<tPid>(-1),
             .task_runtime = -1,
             .total_runtime = -1,
+            .seed = 1,
             .scheduling_algorithm = algorithm,
         };
     }
@@ -110,6 +111,49 @@ TEST(SchedulerTest_Init, init_scheduler__nullptr_does_not_enable_schedule)
     destroy_scheduler();
 }
 
+TEST(SchedulerTest_Init, get_total_runtime__without_scheduler_returns_zero)
+{
+    EXPECT_EQ(get_total_runtime(), 0);
+}
+
+TEST_F(SchedulerTest, get_total_runtime__after_init_returns_zero_before_schedule)
+{
+    tScheduler scheduler = MakeScheduler(SCHEDULING_ALGORITHM_ROUND_ROBIN);
+    init_scheduler(&scheduler);
+
+    EXPECT_EQ(get_total_runtime(), 0);
+    EXPECT_EQ(scheduler.total_runtime, -1) << "internal sentinel before the first tick";
+}
+
+TEST_F(SchedulerTest, get_total_runtime__grows_on_each_schedule_without_runnable_tasks)
+{
+    tScheduler scheduler = MakeScheduler(SCHEDULING_ALGORITHM_ROUND_ROBIN);
+    init_scheduler(&scheduler);
+    ASSERT_EQ(block_task(0), 0);
+
+    EXPECT_EQ(get_total_runtime(), 0);
+    for (int tick = 0; tick < 8; tick++)
+    {
+        EXPECT_EQ(schedule(), -1) << "no READY task is available";
+        EXPECT_EQ(scheduler.total_runtime, tick);
+        EXPECT_EQ(get_total_runtime(), tick) << "reported runtime must follow each tick";
+    }
+}
+
+TEST_F(SchedulerTest, get_total_runtime__grows_on_each_schedule_with_running_task)
+{
+    tScheduler scheduler = MakeScheduler(SCHEDULING_ALGORITHM_ROUND_ROBIN);
+    init_scheduler(&scheduler);
+
+    EXPECT_EQ(get_total_runtime(), 0);
+    for (int tick = 0; tick < 8; tick++)
+    {
+        EXPECT_EQ(schedule(), 0);
+        EXPECT_EQ(scheduler.total_runtime, tick);
+        EXPECT_EQ(get_total_runtime(), tick);
+    }
+}
+
 TEST_F(SchedulerTest, init_scheduler__clears_runtime_and_selects_task_0)
 {
     tScheduler scheduler = MakeScheduler(SCHEDULING_ALGORITHM_ROUND_ROBIN);
@@ -151,11 +195,13 @@ TEST_F(SchedulerTest, schedule__only_init_task_keeps_running)
     EXPECT_EQ(scheduler.current_task, 0);
     EXPECT_EQ(scheduler.total_runtime, 0);
     EXPECT_EQ(scheduler.task_runtime, 0);
+    EXPECT_EQ(GetTask(0)->runtime, 0);
 
     EXPECT_EQ(schedule(), 0);
     EXPECT_EQ(scheduler.current_task, 0);
     EXPECT_EQ(scheduler.total_runtime, 1);
     EXPECT_EQ(scheduler.task_runtime, 1);
+    EXPECT_EQ(GetTask(0)->runtime, 1);
 }
 
 TEST_F(SchedulerTest, schedule__increments_total_runtime_every_tick)
@@ -168,6 +214,7 @@ TEST_F(SchedulerTest, schedule__increments_total_runtime_every_tick)
         schedule();
         EXPECT_EQ(scheduler.total_runtime, i);
         EXPECT_EQ(scheduler.task_runtime, i);
+        EXPECT_EQ(GetTask(0)->runtime, i);
     }
 }
 
@@ -211,6 +258,82 @@ TEST_F(SchedulerTest, schedule__skips_zombie_task)
     {
         EXPECT_EQ(schedule(), 0) << "zombie must not be scheduled";
     }
+}
+
+TEST_F(SchedulerTest, schedule__sig_child_reaps_only_direct_child_zombies)
+{
+    tScheduler scheduler = MakeScheduler(SCHEDULING_ALGORITHM_ROUND_ROBIN);
+    init_scheduler(&scheduler);
+
+    auto parent_a = create_task(0, 0, 0);
+    auto child_a = create_task(0, parent_a, 0);
+    auto parent_b = create_task(0, 0, 0);
+    auto child_b = create_task(0, parent_b, 0);
+    ASSERT_GT(parent_a, 0);
+    ASSERT_GT(child_a, 0);
+    ASSERT_GT(parent_b, 0);
+    ASSERT_GT(child_b, 0);
+
+    ASSERT_EQ(terminate_task(child_a, 3), 0);
+    ASSERT_EQ(terminate_task(child_b, 4), 0);
+
+    const tTaskStruct *zombie_a = GetTask(child_a);
+    const tTaskStruct *zombie_b = GetTask(child_b);
+    ASSERT_NE(zombie_a, nullptr);
+    ASSERT_NE(zombie_b, nullptr);
+    EXPECT_EQ(zombie_a->state, TASK_STATE_TERMINATED);
+    EXPECT_EQ(zombie_b->state, TASK_STATE_TERMINATED);
+    EXPECT_EQ(GetTask(parent_a)->signals & TASK_SIG_CHILD, TASK_SIG_CHILD);
+    EXPECT_EQ(GetTask(parent_b)->signals & TASK_SIG_CHILD, TASK_SIG_CHILD);
+
+    ASSERT_EQ(block_task(0), 0);
+    ASSERT_EQ(block_task(parent_b), 0);
+
+    EXPECT_EQ(schedule(), parent_a) << "parent_a should run and handle TASK_SIG_CHILD";
+
+    EXPECT_EQ(GetTask(child_a), nullptr) << "direct child zombie of parent_a must be reaped";
+    zombie_b = GetTask(child_b);
+    ASSERT_NE(zombie_b, nullptr);
+    EXPECT_EQ(zombie_b->state, TASK_STATE_TERMINATED);
+    EXPECT_EQ(zombie_b->exit_code, 4) << "unrelated zombie must remain until its parent reaps it";
+    EXPECT_EQ(GetTask(parent_a)->signals & TASK_SIG_CHILD, 0);
+    EXPECT_EQ(GetTask(parent_b)->signals & TASK_SIG_CHILD, TASK_SIG_CHILD)
+        << "parent_b must keep TASK_SIG_CHILD until it is scheduled";
+}
+
+TEST_F(SchedulerTest, schedule__sig_term_terminates_task_when_scheduled)
+{
+    tScheduler scheduler = MakeScheduler(SCHEDULING_ALGORITHM_ROUND_ROBIN);
+    init_scheduler(&scheduler);
+
+    auto worker = create_task(0, 0, 0);
+    ASSERT_GT(worker, 0);
+    ASSERT_EQ(send_signal(worker, TASK_SIG_TERM), 0);
+    ASSERT_EQ(block_task(0), 0);
+
+    EXPECT_EQ(schedule(), -1) << "worker becomes a zombie while handling TASK_SIG_TERM";
+
+    const tTaskStruct *task = GetTask(worker);
+    ASSERT_NE(task, nullptr);
+    EXPECT_EQ(task->state, TASK_STATE_TERMINATED);
+    EXPECT_EQ(task->exit_code, 0);
+    EXPECT_EQ(task->signals & TASK_SIG_TERM, 0);
+    EXPECT_EQ(GetTask(0)->signals & TASK_SIG_CHILD, TASK_SIG_CHILD)
+        << "parent should be notified about the child exit";
+}
+
+TEST_F(SchedulerTest, schedule__sig_term_does_not_terminate_init_task)
+{
+    tScheduler scheduler = MakeScheduler(SCHEDULING_ALGORITHM_ROUND_ROBIN);
+    init_scheduler(&scheduler);
+
+    ASSERT_EQ(send_signal(0, TASK_SIG_TERM), 0);
+
+    EXPECT_EQ(schedule(), 0);
+    const tTaskStruct *init = GetTask(0);
+    ASSERT_NE(init, nullptr);
+    EXPECT_EQ(init->state, TASK_STATE_READY);
+    EXPECT_EQ(init->signals & TASK_SIG_TERM, 0);
 }
 
 TEST_F(SchedulerTest, schedule__skips_destroyed_task)
@@ -353,6 +476,177 @@ TEST_F(SchedulerTest, schedule__round_robin_late_arrival_does_not_catch_up)
         << "round robin does not repay CPU missed before the task existed";
     EXPECT_LT(late_runtime, GetTask(first)->runtime);
     EXPECT_LT(late_runtime, GetTask(second)->runtime);
+    VisualizeTasks(scheduler);
+}
+
+TEST_F(SchedulerTest, schedule__round_robin_handles_block_destroy_and_add)
+{
+    tScheduler scheduler = MakeScheduler(SCHEDULING_ALGORITHM_ROUND_ROBIN);
+    init_scheduler(&scheduler);
+
+    auto task_a = create_task(0, 0, 0);
+    auto task_b = create_task(0, 0, 0);
+    ASSERT_GT(task_a, 0);
+    ASSERT_GT(task_b, 0);
+    ASSERT_EQ(block_task(0), 0);
+
+    const int pair_ticks = 120;
+    int a_hits = 0;
+    int b_hits = 0;
+    for (int i = 0; i < pair_ticks; i++)
+    {
+        tPid pid = schedule();
+        if (pid == task_a)
+        {
+            a_hits++;
+        }
+        else if (pid == task_b)
+        {
+            b_hits++;
+        }
+        else
+        {
+            ADD_FAILURE() << "unexpected pid " << pid;
+        }
+    }
+    EXPECT_EQ(a_hits + b_hits, pair_ticks);
+    EXPECT_NEAR(a_hits, b_hits, 2) << "two ready tasks should alternate";
+
+    ASSERT_EQ(block_task(task_a), 0);
+    const int solo_ticks = 50;
+    for (int i = 0; i < solo_ticks; i++)
+    {
+        EXPECT_EQ(schedule(), task_b) << "only task_b is ready while task_a is blocked";
+    }
+    const int b_runtime_before_add = GetTask(task_b)->runtime;
+    const int a_runtime_while_blocked = GetTask(task_a)->runtime;
+
+    auto task_c = create_task(0, 0, 0);
+    ASSERT_GT(task_c, 0);
+    const int duo_ticks = 80;
+    int b_duo = 0;
+    int c_duo = 0;
+    for (int i = 0; i < duo_ticks; i++)
+    {
+        tPid pid = schedule();
+        if (pid == task_b)
+        {
+            b_duo++;
+        }
+        else if (pid == task_c)
+        {
+            c_duo++;
+        }
+        else
+        {
+            ADD_FAILURE() << "unexpected pid " << pid << " with task_a still blocked";
+        }
+    }
+    EXPECT_EQ(b_duo + c_duo, duo_ticks);
+    EXPECT_NEAR(b_duo, c_duo, 2) << "new task joins the rotation without catch-up debt";
+    EXPECT_EQ(GetTask(task_a)->runtime, a_runtime_while_blocked)
+        << "blocked task must not accumulate runtime";
+
+    ASSERT_EQ(unblock_task(task_a), 0);
+    const int trio_ticks = 90;
+    int a_trio = 0;
+    int b_trio = 0;
+    int c_trio = 0;
+    for (int i = 0; i < trio_ticks; i++)
+    {
+        tPid pid = schedule();
+        if (pid == task_a)
+        {
+            a_trio++;
+        }
+        else if (pid == task_b)
+        {
+            b_trio++;
+        }
+        else if (pid == task_c)
+        {
+            c_trio++;
+        }
+        else
+        {
+            ADD_FAILURE() << "unexpected pid " << pid;
+        }
+    }
+    EXPECT_EQ(a_trio + b_trio + c_trio, trio_ticks);
+    EXPECT_NEAR(a_trio, b_trio, 2);
+    EXPECT_NEAR(b_trio, c_trio, 2);
+    EXPECT_NEAR(a_trio, c_trio, 2) << "unblocked task re-enters fair rotation";
+
+    const int b_runtime_before_destroy = GetTask(task_b)->runtime;
+    ASSERT_EQ(destroy_task(task_b), 0);
+    const int after_destroy_ticks = 60;
+    int a_post = 0;
+    int c_post = 0;
+    for (int i = 0; i < after_destroy_ticks; i++)
+    {
+        tPid pid = schedule();
+        if (pid == task_a)
+        {
+            a_post++;
+        }
+        else if (pid == task_c)
+        {
+            c_post++;
+        }
+        else
+        {
+            ADD_FAILURE() << "unexpected pid " << pid;
+        }
+    }
+    EXPECT_EQ(a_post + c_post, after_destroy_ticks);
+    EXPECT_NEAR(a_post, c_post, 2) << "rotation continues among remaining ready tasks";
+    EXPECT_EQ(GetTask(task_b), nullptr) << "destroyed task slot is cleared";
+    EXPECT_EQ(b_runtime_before_destroy, b_runtime_before_add + b_duo + b_trio)
+        << "destroyed task keeps runtime earned before removal";
+
+    const int a_runtime_before_d = GetTask(task_a)->runtime;
+    const int c_runtime_before_d = GetTask(task_c)->runtime;
+
+    auto task_d = create_task(0, 0, 0);
+    ASSERT_GT(task_d, 0);
+    EXPECT_EQ(task_d, task_b) << "destroyed task's PID should be recycled for the new task";
+    EXPECT_EQ(GetTask(task_d)->start_time, scheduler.total_runtime);
+
+    const int trio_after_d_ticks = 90;
+    int a_after_d = 0;
+    int c_after_d = 0;
+    int d_after_d = 0;
+    for (int i = 0; i < trio_after_d_ticks; i++)
+    {
+        tPid pid = schedule();
+        if (pid == task_a)
+        {
+            a_after_d++;
+        }
+        else if (pid == task_c)
+        {
+            c_after_d++;
+        }
+        else if (pid == task_d)
+        {
+            d_after_d++;
+        }
+        else
+        {
+            ADD_FAILURE() << "unexpected pid " << pid;
+        }
+    }
+    EXPECT_EQ(a_after_d + c_after_d + d_after_d, trio_after_d_ticks);
+    EXPECT_NEAR(a_after_d, c_after_d, 2);
+    EXPECT_NEAR(c_after_d, d_after_d, 2);
+    EXPECT_NEAR(a_after_d, d_after_d, 2) << "late task_d joins rotation among survivors";
+    EXPECT_GT(d_after_d, 0);
+    EXPECT_LT(GetTask(task_d)->runtime, a_runtime_before_d)
+        << "round robin does not repay CPU missed before task_d existed";
+    EXPECT_LT(GetTask(task_d)->runtime, c_runtime_before_d)
+        << "round robin does not repay CPU missed before task_d existed";
+    EXPECT_LT(GetTask(task_d)->runtime, GetTask(task_a)->runtime);
+    EXPECT_LT(GetTask(task_d)->runtime, GetTask(task_c)->runtime);
     VisualizeTasks(scheduler);
 }
 
