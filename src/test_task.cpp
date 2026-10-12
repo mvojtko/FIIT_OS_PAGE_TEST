@@ -1,51 +1,7 @@
-#include "gtest/gtest.h"
-#include "debug.h"
 #include "test_common.h"
 
-// Helper: ensure clean state before and after each test
-class TaskManagerTest : public ::testing::Test
+class TaskManagerTest : public OsTestFixture
 {
-  protected:
-    void SetUp() override
-    {
-        memset(tasks, 0xcd, sizeof(tasks));
-        task_mgr.tasks = tasks + 1;
-        task_mgr.size = 16;
-        init_taskMgr(&task_mgr);
-        CheckOverflow();
-    }
-
-    void TearDown() override
-    {
-        CheckOverflow();
-        destroy_taskMgr();
-        CheckOverflow();
-    }
-
-    void CheckOverflow() const
-    {
-        tTaskStruct expected;
-        memset(&expected, 0xcd, sizeof(tTaskStruct));
-        auto selected = tasks[0];
-        EXPECT_EQ(selected, expected) << "tasks init overflow";
-        selected = tasks[NUMS_ELEMENTS(tasks) - 1];
-        EXPECT_EQ(selected, expected) << "tasks init overflow";
-    }
-
-    const tTaskStruct *GetTask(tPid pid) const
-    {
-        for (uint i = 0; i < NUMS_ELEMENTS(tasks); i++)
-        {
-            if (tasks[i].pid == pid)
-            {
-                return &tasks[i];
-            }
-        }
-        return nullptr;
-    }
-
-    tTaskStruct tasks[18];
-    tTaskMgr task_mgr;
 };
 
 TEST(TaskManagerTest_Init, init_taskMgr__invalid_params)
