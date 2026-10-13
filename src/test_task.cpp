@@ -39,14 +39,13 @@ TEST_F(TaskManagerTest, init_taskMgr__clears_tasks_structs)
     EXPECT_EQ(selected, expected) << "there is expected task 0 at index 0 created";
     expected.pid = -1;
     selected = task_mgr.tasks[6];
-    EXPECT_EQ(selected, expected) << "tasks are not initialized";
+    EXPECT_EQ(selected, expected) << "tasks should be initialized to default values";
     selected = task_mgr.tasks[15];
-    EXPECT_EQ(selected, expected) << "tasks are not initialized";
+    EXPECT_EQ(selected, expected) << "tasks should be initialized to default values";
 }
 
-TEST_F(TaskManagerTest, get_taskMgr__without_init_fails)
+TEST(TaskManagerTest_Init, get_taskMgr__without_init_fails)
 {
-    destroy_taskMgr();
     EXPECT_EQ(get_taskMgr(), nullptr) << "system not initialized";
 }
 
@@ -61,9 +60,8 @@ TEST_F(TaskManagerTest, create_task__invalid_params)
     EXPECT_EQ(create_task(16, 0, 0), -2) << "invalid priority";
 }
 
-TEST_F(TaskManagerTest, create_task__without_init_fails)
+TEST(TaskManagerTest_Init, create_task__without_init_fails)
 {
-    destroy_taskMgr();  // simulate uninitialized state
     EXPECT_EQ(create_task(0, 0, 0), -3) << "system not initialized";
 }
 
@@ -228,9 +226,8 @@ TEST_F(TaskManagerTest, terminate_task__existing_task)
         << "parent should receive TASK_SIG_CHILD";
 }
 
-TEST_F(TaskManagerTest, terminate_task__without_init_fails)
+TEST(TaskManagerTest_Init, terminate_task__without_init_fails)
 {
-    destroy_taskMgr();
     EXPECT_EQ(terminate_task(1, 0), -3) << "system not initialized";
 }
 
@@ -251,6 +248,7 @@ TEST_F(TaskManagerTest, terminate_task__blocked_task)
     auto *task = GetTask(pid);
     ASSERT_NE(task, nullptr);
     EXPECT_EQ(task->state, TASK_STATE_TERMINATED);
+    EXPECT_EQ(task->signals, 0);
     EXPECT_EQ(task->exit_code, 7);
 }
 
@@ -272,9 +270,8 @@ TEST_F(TaskManagerTest, terminate_task__signals_direct_parent_only)
         << "grandparent should not receive TASK_SIG_CHILD";
 }
 
-TEST_F(TaskManagerTest, destroy_task__without_init_fails)
+TEST(TaskManagerTest_Init, destroy_task__without_init_fails)
 {
-    destroy_taskMgr();  // simulate uninitialized state
     EXPECT_EQ(destroy_task(1), -3) << "system not initialized";
 }
 
@@ -355,9 +352,8 @@ TEST_F(TaskManagerTest, send_signal__zombie_fails)
     EXPECT_EQ(send_signal(pid, TASK_SIG_TERM), -1);
 }
 
-TEST_F(TaskManagerTest, send_signal__without_init_fails)
+TEST(TaskManagerTest_Init, send_signal__without_init_fails)
 {
-    destroy_taskMgr();
     EXPECT_EQ(send_signal(0, TASK_SIG_TERM), -3);
 }
 
@@ -399,9 +395,20 @@ TEST_F(TaskManagerTest, block_task__zombie_fails)
     EXPECT_EQ(unblock_task(pid), -1);
 }
 
-TEST_F(TaskManagerTest, block_task__without_init_fails)
+TEST(TaskManagerTest_Init, block_task__without_init_fails)
 {
-    destroy_taskMgr();
     EXPECT_EQ(block_task(0), -3);
     EXPECT_EQ(unblock_task(0), -3);
+}
+
+TEST(TaskManagerTest_Init, destroy_taskMgr__without_init)
+{
+    destroy_taskMgr();
+    EXPECT_EQ(get_taskMgr(), nullptr);
+}
+
+TEST_F(TaskManagerTest, destroy_taskMgr__clears_pointer)
+{
+    destroy_taskMgr();
+    EXPECT_EQ(get_taskMgr(), nullptr);
 }
