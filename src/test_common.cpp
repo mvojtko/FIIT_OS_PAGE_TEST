@@ -5,7 +5,15 @@
 
 bool operator==(const tTaskStruct &lhs, const tTaskStruct &rhs)
 {
-    return memcmp(&lhs, &rhs, sizeof(tTaskStruct)) == 0;
+    return lhs.pid == rhs.pid &&
+           lhs.ppid == rhs.ppid &&
+           lhs.priority == rhs.priority &&
+           lhs.signals == rhs.signals &&
+           lhs.state == rhs.state &&
+           lhs.uid == rhs.uid &&
+           lhs.runtime == rhs.runtime &&
+           lhs.start_time == rhs.start_time &&
+           lhs.exit_code == rhs.exit_code;
 }
 
 void PrintTo(const tTaskStruct &entry, std::ostream *os)
@@ -41,8 +49,10 @@ void OsTestFixture::CheckOverflow() const
 {
     tTaskStruct expected;
     memset(&expected, 0xcd, sizeof(tTaskStruct));
-    EXPECT_EQ(tasks[0], expected) << "tasks init overflow";
-    EXPECT_EQ(tasks[kTaskStorageSlots - 1], expected) << "tasks init overflow";
+    EXPECT_EQ(memcmp(&tasks[0], &expected, sizeof(tTaskStruct)), 0)
+        << "task storage guard was overwritten";
+    EXPECT_EQ(memcmp(&tasks[kTaskStorageSlots - 1], &expected, sizeof(tTaskStruct)), 0)
+        << "task storage guard was overwritten";
 }
 
 const tTaskStruct *OsTestFixture::GetTask(tPid pid) const

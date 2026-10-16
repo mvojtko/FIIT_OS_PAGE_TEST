@@ -8,7 +8,6 @@ TEST(TaskManagerTest_Init, init_taskMgr__invalid_params)
 {
     tTaskStruct tasks[8];
     tTaskMgr task_mgr { .tasks = nullptr, .size = 0 };
-    // Ensure init_taskMgr initializes the manager correctly
     EXPECT_EQ(init_taskMgr(nullptr), -1) << "init_taskMgr should return -1 for nullptr";
     EXPECT_EQ(init_taskMgr(&task_mgr), -1) << "init_taskMgr tTaskMgr.tasks can not be nullptr";
 
@@ -18,6 +17,7 @@ TEST(TaskManagerTest_Init, init_taskMgr__invalid_params)
     task_mgr.size = 0;
     task_mgr.tasks = tasks;
     EXPECT_EQ(init_taskMgr(&task_mgr), -1) << "init_taskMgr tTaskMgr.size can not be zero";
+    destroy_taskMgr();
 }
 
 TEST_F(TaskManagerTest, init_taskMgr__clears_tasks_structs)
@@ -33,15 +33,14 @@ TEST_F(TaskManagerTest, init_taskMgr__clears_tasks_structs)
         .start_time = 0,
         .exit_code = 0
     };
-    init_taskMgr(&task_mgr);
 
-    auto selected = task_mgr.tasks[0];
-    EXPECT_EQ(selected, expected) << "there is expected task 0 at index 0 created";
+    EXPECT_EQ(task_mgr.tasks[0], expected) << "there is expected task 0 at index 0 created";
     expected.pid = -1;
-    selected = task_mgr.tasks[6];
-    EXPECT_EQ(selected, expected) << "tasks should be initialized to default values";
-    selected = task_mgr.tasks[15];
-    EXPECT_EQ(selected, expected) << "tasks should be initialized to default values";
+    for (uint8_t i = 1; i < task_mgr.size; i++)
+    {
+        EXPECT_EQ(task_mgr.tasks[i], expected) << "slot " << static_cast<int>(i)
+                                               << " should be free";
+    }
 }
 
 TEST(TaskManagerTest_Init, get_taskMgr__without_init_fails)
@@ -74,18 +73,21 @@ TEST_F(TaskManagerTest, create_task__success)
 {
     auto pid = create_task(7, 0, 42);
     EXPECT_GT(pid, 0) << "create_task should return a positive PID";
+    tTaskStruct expected{
+        .pid = pid,
+        .ppid = 0,
+        .priority = 7,
+        .signals = 0,
+        .state = TASK_STATE_READY,
+        .uid = 42,
+        .runtime = 0,
+        .start_time = 0,
+        .exit_code = 0
+    };
 
     auto *task = GetTask(pid);
     ASSERT_NE(task, nullptr) << "created task must be stored in the manager";
-    EXPECT_EQ(task->pid, pid);
-    EXPECT_EQ(task->ppid, 0);
-    EXPECT_EQ(task->priority, 7);
-    EXPECT_EQ(task->uid, 42);
-    EXPECT_EQ(task->signals, 0);
-    EXPECT_EQ(task->state, TASK_STATE_READY);
-    EXPECT_EQ(task->runtime, 0);
-    EXPECT_EQ(task->start_time, 0);
-    EXPECT_EQ(task->exit_code, 0);
+    EXPECT_EQ(*task, expected);
 }
 
 TEST_F(TaskManagerTest, create_task__priority_15_is_valid)
@@ -97,7 +99,7 @@ TEST_F(TaskManagerTest, create_task__priority_15_is_valid)
     EXPECT_EQ(task->priority, 15);
 }
 
-TEST_F(TaskManagerTest, create_task__with_non_init_parent)
+TEST_F(TaskManagerTest, create_task__with_parent)
 {
     auto parent = create_task(1, 0, 3);
     ASSERT_GT(parent, 0);
@@ -135,6 +137,21 @@ TEST_F(TaskManagerTest, create_task__resource_limit)
     EXPECT_EQ(create_task(0, 0, 0), -1) << "resource limit reached";
 }
 
+TEST_F(TaskManagerTest, create_task__blocked_parent_pass)
+{
+    auto parent = create_task(0, 0, 0);
+    ASSERT_GT(parent, 0);
+    EXPECT_EQ(block_task(parent), 0);
+
+    auto child = create_task(0, parent, 0);
+    EXPECT_GT(child, 0) << "blocked parent is valid";
+    auto *task = GetTask(child);
+    ASSERT_NE(task, nullptr);
+    EXPECT_EQ(task->ppid, parent);
+    EXPECT_EQ(task->state, TASK_STATE_READY);
+    EXPECT_EQ(GetTask(parent)->state, TASK_STATE_BLOCKED);
+}
+
 TEST_F(TaskManagerTest, create_task__zombie_parent_fails)
 {
     auto parent = create_task(0, 0, 0);
@@ -151,7 +168,7 @@ TEST_F(TaskManagerTest, create_task__destroyed_parent_fails)
     EXPECT_EQ(create_task(0, parent, 0), -4) << "destroyed task is not a valid parent";
 }
 
-TEST_F(TaskManagerTest, create_task__reuses_slot_after_destroy)
+TEST_F(TaskManagerTest, create_task__reuses_freed_slot)
 {
     tPid first = create_task(0, 0, 0);
     ASSERT_GT(first, 0);
@@ -287,6 +304,13 @@ TEST_F(TaskManagerTest, destroy_task__existing_task)
     EXPECT_EQ(GetTask(pid), nullptr) << "destroyed task must not be findable by PID";
 }
 
+TEST_F(TaskManagerTest, destroy_task__existing_task_repeated)
+{
+    auto pid = create_task(0, 0, 0);
+    EXPECT_EQ(destroy_task(pid), 0);
+    EXPECT_EQ(destroy_task(pid), -1) << "already destroyed task must not be destroyed again";
+}
+
 TEST_F(TaskManagerTest, destroy_task__nonexistent_task)
 {
     EXPECT_EQ(destroy_task(5), -1);
@@ -326,6 +350,19 @@ TEST_F(TaskManagerTest, send_signal__existing_task)
     EXPECT_EQ(task->state, TASK_STATE_READY) << "send_signal should not terminate the task";
 }
 
+TEST_F(TaskManagerTest, send_signal__same_bit_is_not_added)
+{
+    auto pid = create_task(0, 0, 0);
+    ASSERT_GT(pid, 0);
+    EXPECT_EQ(send_signal(pid, TASK_SIG_TERM), 0);
+    EXPECT_EQ(send_signal(pid, TASK_SIG_TERM), 0);
+
+    auto *task = GetTask(pid);
+    ASSERT_NE(task, nullptr);
+    EXPECT_EQ(task->signals, TASK_SIG_TERM)
+        << "a repeated signal is a bit, not a counter";
+}
+
 TEST_F(TaskManagerTest, send_signal__accumulates_bits)
 {
     auto pid = create_task(0, 0, 0);
@@ -352,6 +389,19 @@ TEST_F(TaskManagerTest, send_signal__zombie_fails)
     EXPECT_EQ(send_signal(pid, TASK_SIG_TERM), -1);
 }
 
+TEST_F(TaskManagerTest, send_signal__blocked_task_pass)
+{
+    auto pid = create_task(0, 0, 0);
+    ASSERT_GT(pid, 0);
+    EXPECT_EQ(block_task(pid), 0);
+    EXPECT_EQ(send_signal(pid, TASK_SIG_TERM), 0);
+
+    auto *task = GetTask(pid);
+    ASSERT_NE(task, nullptr);
+    EXPECT_EQ(task->signals & TASK_SIG_TERM, TASK_SIG_TERM);
+    EXPECT_EQ(task->state, TASK_STATE_BLOCKED) << "send_signal should not terminate the task";
+}
+
 TEST(TaskManagerTest_Init, send_signal__without_init_fails)
 {
     EXPECT_EQ(send_signal(0, TASK_SIG_TERM), -3);
@@ -366,6 +416,29 @@ TEST_F(TaskManagerTest, block_task__existing_task)
     auto *task = GetTask(pid);
     ASSERT_NE(task, nullptr);
     EXPECT_EQ(task->state, TASK_STATE_BLOCKED);
+}
+
+TEST_F(TaskManagerTest, block_task__existing_task_repeated)
+{
+    auto pid = create_task(0, 0, 0);
+    ASSERT_GT(pid, 0);
+    EXPECT_EQ(block_task(pid), 0);
+    EXPECT_EQ(block_task(pid), 0) << "block_task should be idempotent";
+
+    auto *task = GetTask(pid);
+    ASSERT_NE(task, nullptr);
+    EXPECT_EQ(task->state, TASK_STATE_BLOCKED);
+}
+
+TEST_F(TaskManagerTest, unblock_task__existing_task_ready)
+{
+    auto pid = create_task(0, 0, 0);
+    ASSERT_GT(pid, 0);
+    EXPECT_EQ(unblock_task(pid), 0) << "unblock_task should be idempotent";
+
+    auto *task = GetTask(pid);
+    ASSERT_NE(task, nullptr);
+    EXPECT_EQ(task->state, TASK_STATE_READY);
 }
 
 TEST_F(TaskManagerTest, unblock_task__existing_task)

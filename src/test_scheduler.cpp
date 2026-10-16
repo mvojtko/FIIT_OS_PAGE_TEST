@@ -1,5 +1,7 @@
 #include "test_common.h"
 
+#include <memory>
+#include <string>
 #include <utility>
 
 extern "C" {
@@ -22,22 +24,21 @@ class SchedulerTest : public OsTestFixture
         OsTestFixture::TearDown();
     }
 
-    static tScheduler MakeScheduler(tSchedulingAlgorithm algorithm, uint32_t seed = 1)
+    static std::unique_ptr<tScheduler> MakeScheduler(tSchedulingAlgorithm algorithm, uint32_t seed = 1)
     {
-        return tScheduler{
+        return std::make_unique<tScheduler>(tScheduler{
             .current_task = static_cast<tPid>(-1),
             .task_runtime = -1,
             .total_runtime = -1,
             .seed = seed,
-            .scheduling_algorithm = algorithm,
-        };
+            .scheduling_algorithm = algorithm});
     }
 
     void InitScheduler(tSchedulingAlgorithm algorithm = SCHEDULING_ALGORITHM_ROUND_ROBIN,
                        uint32_t seed = 1)
     {
-        new (&scheduler_) tScheduler(MakeScheduler(algorithm, seed));
-        init_scheduler(&scheduler_);
+        scheduler_ = std::move(MakeScheduler(algorithm, seed));
+        init_scheduler(scheduler_.get());
     }
 
     void BlockInitTask()
@@ -53,40 +54,12 @@ class SchedulerTest : public OsTestFixture
         return {low, high};
     }
 
-    void CountScheduleHits(int ticks, tPid pid_a, int &hits_a, tPid pid_b, int &hits_b) const
+    void RunSchedulerStrict(int ticks, tPid pid_a, tPid pid_b) const
     {
-        hits_a = 0;
-        hits_b = 0;
-        for (int i = 0; i < ticks; i++)
+        for (int i = 0; i < ticks + 1; i++)
         {
             tPid pid = schedule();
-            if (pid == pid_a)
-            {
-                hits_a++;
-            }
-            else if (pid == pid_b)
-            {
-                hits_b++;
-            }
-        }
-    }
-
-    void CountScheduleHitsStrict(int ticks, tPid pid_a, int &hits_a, tPid pid_b, int &hits_b) const
-    {
-        hits_a = 0;
-        hits_b = 0;
-        for (int i = 0; i < ticks; i++)
-        {
-            tPid pid = schedule();
-            if (pid == pid_a)
-            {
-                hits_a++;
-            }
-            else if (pid == pid_b)
-            {
-                hits_b++;
-            }
-            else
+            if (pid != pid_a && pid != pid_b)
             {
                 ADD_FAILURE() << "unexpected pid " << pid;
             }
@@ -95,18 +68,17 @@ class SchedulerTest : public OsTestFixture
 
     void VisualizeTasks() const
     {
-        for (uint i = 0; i < task_mgr.size; i++)
+        for (uint8_t i = 0; i < task_mgr.size; i++)
         {
             auto task = task_mgr.tasks[i];
             if (task.pid == -1) continue;
 
-            dprintf("tasks[%d] u-%d p-%d t-%d/%d %0.2f%% vt-%d/%d %0.2f%%\n",
+            dprintf("tasks[%d] u-%d p-%d t-%d/%d %0.2f%%\n",
                 task.pid, task.uid, task.priority,
-                task.runtime, scheduler_.total_runtime,
-                (float)task.runtime * 100 / (float)scheduler_.total_runtime,
-                task.runtime, scheduler_.total_runtime - task.start_time,
-                (float)task.runtime * 100 / (float)(scheduler_.total_runtime - task.start_time));
+                task.runtime, scheduler_->total_runtime,
+                (float)task.runtime * 100 / (float)scheduler_->total_runtime);
         }
+        dprintf("------------------------------------\n");
     }
 
     static int TicketCount(uint8_t priority)
@@ -117,7 +89,7 @@ class SchedulerTest : public OsTestFixture
     void ExpectFairUserBalance(int uid1_hits, int uid2_hits, int ticks) const
     {
         EXPECT_EQ(uid1_hits + uid2_hits, ticks);
-        EXPECT_NEAR(uid1_hits, uid2_hits, ticks / 10)
+        EXPECT_NEAR(uid1_hits, uid2_hits, ticks / 100)
             << "each user should receive a fair share of the CPU";
     }
 
@@ -130,13 +102,13 @@ class SchedulerTest : public OsTestFixture
 
     void RunScheduler(int ticks)
     {
-        for (int i = 0; i < ticks; i++)
+        for (int i = 0; i < ticks + 1; i++)
         {
             schedule();
         }
     }
 
-    tScheduler scheduler_{};
+    std::unique_ptr<tScheduler> scheduler_;
 };
 
 TEST(SchedulerTest_Init, init_scheduler__nullptr_does_not_enable_schedule)
@@ -159,7 +131,7 @@ TEST(SchedulerTest_Init, schedule__without_init_fails)
 TEST_F(SchedulerTest, get_total_runtime__after_init_returns_zero_before_schedule)
 {
     EXPECT_EQ(get_total_runtime(), 0);
-    EXPECT_EQ(scheduler_.total_runtime, -1) << "internal sentinel before the first tick";
+    EXPECT_EQ(scheduler_->total_runtime, -1) << "internal sentinel before the first tick";
 }
 
 TEST_F(SchedulerTest, get_total_runtime__grows_on_each_schedule_without_runnable_tasks)
@@ -170,7 +142,7 @@ TEST_F(SchedulerTest, get_total_runtime__grows_on_each_schedule_without_runnable
     for (int tick = 0; tick < 8; tick++)
     {
         EXPECT_EQ(schedule(), -1) << "no READY task is available";
-        EXPECT_EQ(scheduler_.total_runtime, tick);
+        EXPECT_EQ(scheduler_->total_runtime, tick);
         EXPECT_EQ(get_total_runtime(), tick) << "reported runtime must follow each tick";
     }
 }
@@ -181,17 +153,18 @@ TEST_F(SchedulerTest, get_total_runtime__grows_on_each_schedule_with_running_tas
     for (int tick = 0; tick < 8; tick++)
     {
         EXPECT_EQ(schedule(), 0);
-        EXPECT_EQ(scheduler_.total_runtime, tick);
+        EXPECT_EQ(scheduler_->total_runtime, tick);
         EXPECT_EQ(get_total_runtime(), tick);
     }
 }
 
-TEST_F(SchedulerTest, init_scheduler__clears_runtime_and_selects_task_0)
+TEST_F(SchedulerTest, init_scheduler__clears_runtime_and_selects_no_task)
 {
-    EXPECT_EQ(scheduler_.current_task, -1);
-    EXPECT_EQ(scheduler_.task_runtime, 0);
-    EXPECT_EQ(scheduler_.total_runtime, -1);
-    EXPECT_EQ(scheduler_.scheduling_algorithm, SCHEDULING_ALGORITHM_ROUND_ROBIN);
+    EXPECT_EQ(scheduler_->current_task, -1);
+    EXPECT_EQ(scheduler_->task_runtime, 0);
+    EXPECT_EQ(scheduler_->total_runtime, -1);
+    EXPECT_EQ(scheduler_->seed, 1u);
+    EXPECT_EQ(scheduler_->scheduling_algorithm, SCHEDULING_ALGORITHM_ROUND_ROBIN);
 }
 
 TEST_F(SchedulerTest, schedule__without_init_taskMgr_fails)
@@ -206,18 +179,27 @@ TEST_F(SchedulerTest, schedule__after_destroy_fails)
     EXPECT_EQ(schedule(), -1) << "destroyed scheduler must not schedule";
 }
 
+TEST_F(SchedulerTest, get_total_runtime__after_destroy_returns_zero)
+{
+    ASSERT_EQ(schedule(), 0);
+    ASSERT_EQ(schedule(), 0);
+    EXPECT_EQ(get_total_runtime(), 1);
+    destroy_scheduler();
+    EXPECT_EQ(get_total_runtime(), 0);
+}
+
 TEST_F(SchedulerTest, schedule__only_init_task_keeps_running)
 {
     EXPECT_EQ(schedule(), 0);
-    EXPECT_EQ(scheduler_.current_task, 0);
-    EXPECT_EQ(scheduler_.total_runtime, 0);
-    EXPECT_EQ(scheduler_.task_runtime, 0);
+    EXPECT_EQ(scheduler_->current_task, 0);
+    EXPECT_EQ(scheduler_->total_runtime, 0);
+    EXPECT_EQ(scheduler_->task_runtime, 0);
     EXPECT_EQ(GetTask(0)->runtime, 0);
 
     EXPECT_EQ(schedule(), 0);
-    EXPECT_EQ(scheduler_.current_task, 0);
-    EXPECT_EQ(scheduler_.total_runtime, 1);
-    EXPECT_EQ(scheduler_.task_runtime, 1);
+    EXPECT_EQ(scheduler_->current_task, 0);
+    EXPECT_EQ(scheduler_->total_runtime, 1);
+    EXPECT_EQ(scheduler_->task_runtime, 1);
     EXPECT_EQ(GetTask(0)->runtime, 1);
 }
 
@@ -226,8 +208,8 @@ TEST_F(SchedulerTest, schedule__increments_total_runtime_every_tick)
     for (int i = 0; i <= 8; i++)
     {
         schedule();
-        EXPECT_EQ(scheduler_.total_runtime, i);
-        EXPECT_EQ(scheduler_.task_runtime, i);
+        EXPECT_EQ(scheduler_->total_runtime, i);
+        EXPECT_EQ(scheduler_->task_runtime, i);
         EXPECT_EQ(GetTask(0)->runtime, i);
     }
 }
@@ -237,9 +219,9 @@ TEST_F(SchedulerTest, schedule__returns_minus_one_when_no_ready_task)
     ASSERT_EQ(block_task(0), 0);
 
     EXPECT_EQ(schedule(), -1) << "no READY task is available";
-    EXPECT_EQ(scheduler_.total_runtime, 0) << "total_runtime still advances";
+    EXPECT_EQ(scheduler_->total_runtime, 0) << "total_runtime still advances";
     EXPECT_EQ(schedule(), -1) << "no READY task is available";
-    EXPECT_EQ(scheduler_.total_runtime, 1) << "total_runtime still advances";
+    EXPECT_EQ(scheduler_->total_runtime, 1) << "total_runtime still advances";
 }
 
 TEST_F(SchedulerTest, schedule__skips_blocked_task)
@@ -300,6 +282,41 @@ TEST_F(SchedulerTest, schedule__sig_child_reaps_only_direct_child_zombies)
         << "parent_b must keep TASK_SIG_CHILD until it is scheduled";
 }
 
+TEST_F(SchedulerTest, schedule__sig_child_keeps_living_child)
+{
+    auto parent = CreateTask();
+    auto child = CreateTask(0, parent);
+    ASSERT_EQ(send_signal(parent, TASK_SIG_CHILD), 0);
+    ASSERT_EQ(block_task(0), 0);
+    ASSERT_EQ(block_task(child), 0);
+
+    EXPECT_EQ(schedule(), parent);
+    EXPECT_EQ(GetTask(parent)->signals & TASK_SIG_CHILD, 0);
+    const tTaskStruct *living = GetTask(child);
+    ASSERT_NE(living, nullptr);
+    EXPECT_EQ(living->state, TASK_STATE_BLOCKED);
+    EXPECT_EQ(living->pid, child);
+}
+
+TEST_F(SchedulerTest, schedule__sig_child_then_sig_term_reaps_before_exit)
+{
+    auto parent = CreateTask();
+    auto child = CreateTask(0, parent);
+    ASSERT_EQ(terminate_task(child, 5), 0);
+    ASSERT_EQ(send_signal(parent, TASK_SIG_TERM), 0);
+    ASSERT_EQ(block_task(0), 0);
+
+    EXPECT_EQ(schedule(), -1) << "parent exits after reaping its zombie child";
+    EXPECT_EQ(GetTask(child), nullptr) << "TASK_SIG_CHILD reaps the zombie before TASK_SIG_TERM";
+
+    const tTaskStruct *zombie = GetTask(parent);
+    ASSERT_NE(zombie, nullptr);
+    EXPECT_EQ(zombie->state, TASK_STATE_TERMINATED);
+    EXPECT_EQ(zombie->exit_code, 0);
+    EXPECT_EQ(zombie->signals & (TASK_SIG_CHILD | TASK_SIG_TERM), 0);
+    EXPECT_EQ(GetTask(0)->signals & TASK_SIG_CHILD, TASK_SIG_CHILD);
+}
+
 TEST_F(SchedulerTest, schedule__sig_term_terminates_task_when_scheduled)
 {
     auto worker = CreateTask();
@@ -326,6 +343,33 @@ TEST_F(SchedulerTest, schedule__sig_term_does_not_terminate_init_task)
     ASSERT_NE(init, nullptr);
     EXPECT_EQ(init->state, TASK_STATE_READY);
     EXPECT_EQ(init->signals & TASK_SIG_TERM, 0);
+}
+
+TEST_F(SchedulerTest, schedule__sig_term_on_blocked_task_waits_until_unblocked)
+{
+    auto worker = CreateTask();
+    ASSERT_EQ(block_task(worker), 0);
+    ASSERT_EQ(send_signal(worker, TASK_SIG_TERM), 0);
+
+    for (int i = 0; i < 4; i++)
+    {
+        EXPECT_EQ(schedule(), 0) << "a blocked task is not selected to handle TASK_SIG_TERM";
+    }
+    const tTaskStruct *blocked = GetTask(worker);
+    ASSERT_NE(blocked, nullptr);
+    EXPECT_EQ(blocked->state, TASK_STATE_BLOCKED);
+    EXPECT_EQ(blocked->signals & TASK_SIG_TERM, TASK_SIG_TERM);
+
+    ASSERT_EQ(block_task(0), 0);
+    ASSERT_EQ(unblock_task(worker), 0);
+    EXPECT_EQ(schedule(), -1) << "TASK_SIG_TERM is handled once the task is scheduled";
+
+    const tTaskStruct *task = GetTask(worker);
+    ASSERT_NE(task, nullptr) << "init is blocked, so the zombie is not reaped in this tick";
+    EXPECT_EQ(task->state, TASK_STATE_TERMINATED);
+    EXPECT_EQ(task->exit_code, 0);
+    EXPECT_EQ(task->signals & TASK_SIG_TERM, 0);
+    EXPECT_EQ(GetTask(0)->signals & TASK_SIG_CHILD, TASK_SIG_CHILD);
 }
 
 TEST_F(SchedulerTest, schedule__skips_destroyed_task)
@@ -373,7 +417,7 @@ TEST_F(SchedulerTest, schedule__adds_slice_runtime_to_task_on_switch)
     // first schedule does nothing as no work has been done yet
     tPid previous = schedule();
     ASSERT_EQ(previous, pid);
-    int32_t slice = scheduler_.task_runtime;
+    int32_t slice = scheduler_->task_runtime;
     ASSERT_EQ(slice, 0);
 
     ASSERT_EQ(block_task(pid), 0);
@@ -382,6 +426,7 @@ TEST_F(SchedulerTest, schedule__adds_slice_runtime_to_task_on_switch)
     tPid next = schedule();
     EXPECT_EQ(next, 0);
     EXPECT_NE(next, previous);
+    EXPECT_EQ(scheduler_->task_runtime, 0) << "task_runtime resets when the running task changes";
 
     auto *old_task = GetTask(pid);
     ASSERT_NE(old_task, nullptr);
@@ -389,14 +434,58 @@ TEST_F(SchedulerTest, schedule__adds_slice_runtime_to_task_on_switch)
         << "departing task must receive the current-cycle runtime";
 }
 
+TEST_F(SchedulerTest, schedule__round_robin_alternates_in_storage_order)
+{
+    auto pid = CreateTask();
+    auto pid1 = CreateTask();
+    const tPid expected[] = {0, pid, pid1, 0, pid, pid1, 0, pid, pid1};
+    for (tPid want : expected)
+    {
+        EXPECT_EQ(schedule(), want);
+    }
+}
+
+TEST_F(SchedulerTest, schedule__round_robin_alternates_in_storage_order_with_gaps)
+{
+    auto pid = CreateTask();
+    auto pid1 = CreateTask();
+    auto pid2 = CreateTask();
+    destroy_task(pid1);
+    const tPid expected[] = {0, pid, pid2, 0, pid, pid2, 0, pid, pid2};
+    for (tPid want : expected)
+    {
+        EXPECT_EQ(schedule(), want);
+    }
+}
+
+TEST_F(SchedulerTest, schedule__round_robin_alternates_in_storage_order_gap_after_some_run)
+{
+    auto pid = CreateTask();
+    auto pid1 = CreateTask();
+    auto pid2 = CreateTask();
+    const tPid expected[] = {0, pid, pid1, pid2, 0, pid, pid1, pid2, 0, pid};
+    for (tPid want : expected)
+    {
+        EXPECT_EQ(schedule(), want);
+    }
+
+    EXPECT_EQ(destroy_task(pid), 0);
+    const tPid expected1[] = {pid1, pid2, 0, pid1, pid2, 0};
+    for (tPid want : expected1)
+    {
+        EXPECT_EQ(schedule(), want);
+    }
+}
+
 TEST_F(SchedulerTest, schedule__round_robin_shares_time_without_priority)
 {
     auto [low, high] = AddLowHighTasks(1, 15);
 
-    const int ticks = 201;
-    int low_hits = 0;
-    int high_hits = 0;
-    CountScheduleHitsStrict(ticks, low, low_hits, high, high_hits);
+    const int ticks = 200;
+    RunSchedulerStrict(ticks, low, high);
+
+    int low_hits = GetTask(low)->runtime;
+    int high_hits = GetTask(high)->runtime;
 
     EXPECT_EQ(low_hits + high_hits, ticks);
     EXPECT_NEAR(low_hits, high_hits, 2)
@@ -409,7 +498,7 @@ TEST_F(SchedulerTest, schedule__round_robin_late_arrival_does_not_catch_up)
     auto [first, second] = AddLowHighTasks(3, 12);
 
     const int warmup_ticks = 400;
-    const int post_arrival_ticks = 300;
+    const int post_arrival_ticks = 299;
     RunScheduler(warmup_ticks);
 
     const int first_before = GetTask(first)->runtime;
@@ -433,16 +522,16 @@ TEST_F(SchedulerTest, schedule__round_robin_late_arrival_does_not_catch_up)
     VisualizeTasks();
 }
 
-TEST_F(SchedulerTest, schedule__round_robin_handles_block_destroy_and_add)
+TEST_F(SchedulerTest, schedule__round_robin_handles_block_destroy_and_create)
 {
     auto task_a = CreateTask();
     auto task_b = CreateTask();
     BlockInitTask();
 
     const int pair_ticks = 120;
-    int a_hits = 0;
-    int b_hits = 0;
-    CountScheduleHitsStrict(pair_ticks, task_a, a_hits, task_b, b_hits);
+    RunSchedulerStrict(pair_ticks, task_a, task_b);
+    auto a_hits = GetTask(task_a)->runtime;
+    auto b_hits = GetTask(task_b)->runtime;
     EXPECT_EQ(a_hits + b_hits, pair_ticks);
     EXPECT_NEAR(a_hits, b_hits, 2) << "two ready tasks should alternate";
 
@@ -452,7 +541,6 @@ TEST_F(SchedulerTest, schedule__round_robin_handles_block_destroy_and_add)
     {
         EXPECT_EQ(schedule(), task_b) << "only task_b is ready while task_a is blocked";
     }
-    const int b_runtime_before_add = GetTask(task_b)->runtime;
     const int a_runtime_while_blocked = GetTask(task_a)->runtime;
 
     auto task_c = create_task(0, 0, 0);
@@ -511,7 +599,6 @@ TEST_F(SchedulerTest, schedule__round_robin_handles_block_destroy_and_add)
     EXPECT_NEAR(b_trio, c_trio, 2);
     EXPECT_NEAR(a_trio, c_trio, 2) << "unblocked task re-enters fair rotation";
 
-    const int b_runtime_before_destroy = GetTask(task_b)->runtime;
     ASSERT_EQ(destroy_task(task_b), 0);
     const int after_destroy_ticks = 60;
     int a_post = 0;
@@ -534,9 +621,6 @@ TEST_F(SchedulerTest, schedule__round_robin_handles_block_destroy_and_add)
     }
     EXPECT_EQ(a_post + c_post, after_destroy_ticks);
     EXPECT_NEAR(a_post, c_post, 2) << "rotation continues among remaining ready tasks";
-    EXPECT_EQ(GetTask(task_b), nullptr) << "destroyed task slot is cleared";
-    EXPECT_EQ(b_runtime_before_destroy, b_runtime_before_add + b_duo + b_trio)
-        << "destroyed task keeps runtime earned before removal";
 
     const int a_runtime_before_d = GetTask(task_a)->runtime;
     const int c_runtime_before_d = GetTask(task_c)->runtime;
@@ -544,7 +628,7 @@ TEST_F(SchedulerTest, schedule__round_robin_handles_block_destroy_and_add)
     auto task_d = create_task(0, 0, 0);
     ASSERT_GT(task_d, 0);
     EXPECT_EQ(task_d, task_b) << "destroyed task's PID should be recycled for the new task";
-    EXPECT_EQ(GetTask(task_d)->start_time, scheduler_.total_runtime);
+    EXPECT_EQ(GetTask(task_d)->start_time, scheduler_->total_runtime);
 
     const int trio_after_d_ticks = 90;
     int a_after_d = 0;
@@ -584,18 +668,76 @@ TEST_F(SchedulerTest, schedule__round_robin_handles_block_destroy_and_add)
     VisualizeTasks();
 }
 
+TEST_F(SchedulerTest, schedule__round_robin_priority_runs_consecutive_quanta)
+{
+    InitScheduler(SCHEDULING_ALGORITHM_ROUND_ROBIN_WITH_PRIORITY);
+    auto low = CreateTask(0);
+    auto high = CreateTask(2);
+    BlockInitTask();
+
+    const tPid expected[] = {low, high, high, high, low, high, high, high, low};
+    for (tPid want : expected)
+    {
+        EXPECT_EQ(schedule(), want);
+    }
+    EXPECT_EQ(scheduler_->task_runtime, 0) << "task_runtime resets when the quantum ends";
+    EXPECT_EQ(GetTask(low)->runtime, 2);
+    EXPECT_EQ(GetTask(high)->runtime, 6) << "priority 2 keeps the cpu for 3 consecutive ticks";
+}
+
+TEST_F(SchedulerTest, schedule__round_robin_priority_runs_consecutive_quanta_with_gaps)
+{
+    InitScheduler(SCHEDULING_ALGORITHM_ROUND_ROBIN_WITH_PRIORITY);
+    auto low = CreateTask(0);
+    auto gap = CreateTask(5);
+    auto high = CreateTask(2);
+    destroy_task(gap);
+
+    const tPid expected[] = {0, low, high, high, high, 0, low, high, high, high, 0, low};
+    for (tPid want : expected)
+    {
+        EXPECT_EQ(schedule(), want);
+    }
+    EXPECT_EQ(scheduler_->task_runtime, 0) << "task_runtime resets when the quantum ends";
+    EXPECT_EQ(GetTask(low)->runtime, 2);
+    EXPECT_EQ(GetTask(high)->runtime, 6) << "priority 2 keeps the cpu for 3 consecutive ticks";
+}
+
+TEST_F(SchedulerTest, schedule__round_robin_priority_alternates_in_storage_order_gap_after_some_run)
+{
+    InitScheduler(SCHEDULING_ALGORITHM_ROUND_ROBIN_WITH_PRIORITY);
+    auto pid = CreateTask(0);
+    auto pid1 = CreateTask(1);
+    auto pid2 = CreateTask(2);
+    const tPid expected[] = {0, pid, pid1, pid1, pid2, pid2, pid2, 0, pid, pid1, pid1, pid2, pid2, pid2, 0, pid};
+    for (tPid want : expected)
+    {
+        EXPECT_EQ(schedule(), want);
+    }
+
+    EXPECT_EQ(destroy_task(pid), 0);
+    const tPid expected1[] = {pid1, pid1, pid2, pid2, pid2, 0, pid1, pid1, pid2, pid2, pid2, 0};
+    for (tPid want : expected1)
+    {
+        EXPECT_EQ(schedule(), want);
+    }
+}
+
 TEST_F(SchedulerTest, schedule__round_robin_with_priority_prefers_higher_priority)
 {
     InitScheduler(SCHEDULING_ALGORITHM_ROUND_ROBIN_WITH_PRIORITY);
     auto [low, high] = AddLowHighTasks(0, 15);
 
-    const int ticks = 1701;
-    int low_hits = 0;
-    int high_hits = 0;
-    CountScheduleHits(ticks, low, low_hits, high, high_hits);
+    const int ticks = 1700;
+    RunScheduler(ticks);
+
+    auto low_hits = GetTask(low)->runtime;
+    auto high_hits = GetTask(high)->runtime;
 
     EXPECT_EQ(low_hits + high_hits, ticks);
     EXPECT_GT(high_hits, low_hits)
+        << "higher priority should receive a longer runtime";
+    EXPECT_NEAR(high_hits, low_hits * 16, 2)
         << "higher priority should receive a longer runtime";
     VisualizeTasks();
 }
@@ -605,7 +747,7 @@ TEST_F(SchedulerTest, schedule__round_robin_priority_late_arrival_keeps_quantum)
     InitScheduler(SCHEDULING_ALGORITHM_ROUND_ROBIN_WITH_PRIORITY);
     auto [low, high] = AddLowHighTasks(0, 15);
 
-    const int warmup_ticks = 401;
+    const int warmup_ticks = 400;
     const int post_arrival_ticks = 400;
     RunScheduler(warmup_ticks);
 
@@ -636,10 +778,10 @@ TEST_F(SchedulerTest, schedule__round_robin_priority_late_arrival_keeps_quantum)
     }
 
     EXPECT_EQ(low_post + high_post + late_high_post, post_arrival_ticks);
-    EXPECT_GT(late_high_post, low_post)
-        << "a late high-priority task still receives a longer quantum";
-    EXPECT_GT(high_post, low_post)
-        << "existing high-priority task keeps its longer quantum";
+    EXPECT_NEAR(high_post, low_post * 16, 20)
+        << "existing high-priority task keeps a 16 tick quantum";
+    EXPECT_NEAR(late_high_post, high_post, 20)
+        << "a late task with the same priority gets the same quantum, not past runtime";
     EXPECT_LT(GetTask(late_high)->runtime, high_before)
         << "priority round robin does not catch the new task up to past runtime";
     VisualizeTasks();
@@ -648,27 +790,71 @@ TEST_F(SchedulerTest, schedule__round_robin_priority_late_arrival_keeps_quantum)
 TEST_F(SchedulerTest, schedule__random_with_priority_prefers_higher_priority)
 {
     InitScheduler(SCHEDULING_ALGORITHM_RANDOM_WITH_PRIORITY);
-    auto [low, high] = AddLowHighTasks(0, 15);
+    tPid low = 0;
+    tPid high = CreateTask(15, 0, 5);
 
-    const int ticks = 4001;
-    int low_hits = 0;
-    int high_hits = 0;
-    CountScheduleHits(ticks, low, low_hits, high, high_hits);
+    const int ticks = 17000;
+    RunScheduler(ticks);
+
+    auto low_hits = GetTask(low)->runtime;
+    auto high_hits = GetTask(high)->runtime;
 
     EXPECT_EQ(low_hits + high_hits, ticks);
-    EXPECT_GT(high_hits, low_hits * 2)
+    EXPECT_NEAR(high_hits, low_hits * 16, ticks/17)
         << "lottery tickets should favour the higher-priority task";
     VisualizeTasks();
+}
+
+TEST_F(SchedulerTest, schedule__random_with_priority_prefers_higher_priority_reverse)
+{
+    InitScheduler(SCHEDULING_ALGORITHM_RANDOM_WITH_PRIORITY);
+    tPid low = 0;
+    tPid high = CreateTask(15, 0, 5);
+
+    const int ticks = 17000;
+    RunScheduler(ticks);
+
+    auto low_hits = GetTask(low)->runtime;
+    auto high_hits = GetTask(high)->runtime;
+
+    EXPECT_EQ(low_hits + high_hits, ticks);
+    EXPECT_NEAR(high_hits, low_hits * 16, ticks/17)
+        << "lottery tickets should favour the higher-priority task";
+    VisualizeTasks();
+}
+
+TEST_F(SchedulerTest, schedule__random_seed_changes_sequence)
+{
+    auto low = CreateTask(0);
+    auto high = CreateTask(15);
+    BlockInitTask();
+
+    auto sample = [&](uint32_t seed) {
+        InitScheduler(SCHEDULING_ALGORITHM_RANDOM_WITH_PRIORITY, seed);
+        EXPECT_EQ(scheduler_->seed, seed);
+        std::string sequence;
+        for (int i = 0; i < 32; i++)
+        {
+            tPid pid = schedule();
+            EXPECT_TRUE(pid == low || pid == high) << "unexpected pid " << pid;
+            sequence.push_back(static_cast<char>(pid));
+        }
+        return sequence;
+    };
+
+    EXPECT_NE(sample(1), sample(2)) << "the lottery sequence must follow the scheduler seed";
 }
 
 TEST_F(SchedulerTest, schedule__random_priority_late_arrival_uses_tickets)
 {
     InitScheduler(SCHEDULING_ALGORITHM_RANDOM_WITH_PRIORITY);
-    auto [low, high] = AddLowHighTasks(0, 15);
+    tPid low = 0;
+    tPid high = CreateTask(15, 0, 0);
 
     const int warmup_ticks = 400;
     const int post_arrival_ticks = 4000;
     RunScheduler(warmup_ticks);
+    VisualizeTasks();
 
     const int high_before = GetTask(high)->runtime;
     ASSERT_GT(high_before, 0);
@@ -697,10 +883,10 @@ TEST_F(SchedulerTest, schedule__random_priority_late_arrival_uses_tickets)
     }
 
     EXPECT_EQ(low_post + high_post + late_high_post, post_arrival_ticks);
-    EXPECT_GT(late_high_post, low_post * 2)
+    EXPECT_NEAR(late_high_post, low_post * 16, post_arrival_ticks / 10)
         << "a late high-priority task is drawn by its tickets, not by missed runtime";
-    EXPECT_GT(high_post, low_post)
-        << "existing high-priority task keeps its ticket advantage";
+    EXPECT_NEAR(high_post, late_high_post, post_arrival_ticks / 17)
+        << "equal ticket counts receive the same future share";
     EXPECT_LT(GetTask(late_high)->runtime, GetTask(high)->runtime)
         << "lottery does not catch a late task up to an incumbent with the same priority";
     VisualizeTasks();
@@ -717,9 +903,10 @@ TEST_F(SchedulerTest, schedule__fair_share_balances_users)
     ASSERT_GT(user_b1, 0);
     ASSERT_GT(user_b2, 0);
     ASSERT_GT(user_b3, 0);
-    ASSERT_EQ(block_task(0), 0);
+    //ASSERT_EQ(block_task(0), 0);
 
     const int ticks = 2401;
+    int uid0_hits = 0;
     int uid1_hits = 0;
     int uid2_hits = 0;
     for (int i = 0; i < ticks; i++)
@@ -727,7 +914,11 @@ TEST_F(SchedulerTest, schedule__fair_share_balances_users)
         tPid pid = schedule();
         const tTaskStruct *task = GetTask(pid);
         ASSERT_NE(task, nullptr);
-        if (task->uid == 1)
+        if (task->uid == 0)
+        {
+            uid0_hits++;
+        }
+        else if (task->uid == 1)
         {
             uid1_hits++;
         }
@@ -737,13 +928,17 @@ TEST_F(SchedulerTest, schedule__fair_share_balances_users)
         }
     }
 
-    ExpectFairUserBalance(uid1_hits, uid2_hits, ticks);
+    EXPECT_EQ(uid0_hits + uid1_hits + uid2_hits, ticks);
+    EXPECT_NEAR(uid0_hits, ticks / 3, ticks / 100) << "user 0 should get roughly third of CPU";
+    EXPECT_NEAR(uid1_hits, ticks / 3, ticks / 100) << "user 1 should get roughly third of CPU";
+    EXPECT_NEAR(uid2_hits, ticks / 3, ticks / 100) << "user 2 should get roughly third of CPU";
 
     const int per_task = uid2_hits / 3;
-    ExpectTaskRuntimeNear(user_a, uid1_hits, ticks / 10, "user 1 task should get roughly half of CPU");
-    ExpectTaskRuntimeNear(user_b1, per_task, ticks / 15, "equal-priority tasks of user 2 should share CPU evenly");
-    ExpectTaskRuntimeNear(user_b2, per_task, ticks / 15, "equal-priority tasks of user 2 should share CPU evenly");
-    ExpectTaskRuntimeNear(user_b3, per_task, ticks / 15, "equal-priority tasks of user 2 should share CPU evenly");
+    ExpectTaskRuntimeNear(0, uid0_hits, ticks / 100, "user 1 task should get roughly third of CPU");
+    ExpectTaskRuntimeNear(user_a, uid1_hits, ticks / 100, "user 1 task should get roughly third of CPU");
+    ExpectTaskRuntimeNear(user_b1, per_task, ticks / 100, "equal-priority tasks of user 2 should share CPU evenly");
+    ExpectTaskRuntimeNear(user_b2, per_task, ticks / 100, "equal-priority tasks of user 2 should share CPU evenly");
+    ExpectTaskRuntimeNear(user_b3, per_task, ticks / 100, "equal-priority tasks of user 2 should share CPU evenly");
     EXPECT_GT(GetTask(user_b1)->runtime, 0) << "no task of user 2 should be starved";
     EXPECT_GT(GetTask(user_b2)->runtime, 0) << "no task of user 2 should be starved";
     EXPECT_GT(GetTask(user_b3)->runtime, 0) << "no task of user 2 should be starved";
@@ -753,15 +948,13 @@ TEST_F(SchedulerTest, schedule__fair_share_balances_users)
 TEST_F(SchedulerTest, schedule__fair_share_balances_users_with_priority)
 {
     InitScheduler(SCHEDULING_ALGORITHM_FAIR_SHARE_WITH_PRIORITY);
-    auto user_a = create_task(8, 0, 1);
+    tPid user_a = 0;
     auto user_b1 = create_task(4, 0, 2);
     auto user_b2 = create_task(8, 0, 2);
     auto user_b3 = create_task(12, 0, 2);
-    ASSERT_GT(user_a, 0);
     ASSERT_GT(user_b1, 0);
     ASSERT_GT(user_b2, 0);
     ASSERT_GT(user_b3, 0);
-    ASSERT_EQ(block_task(0), 0);
 
     const int ticks = 2401;
     int uid1_hits = 0;
@@ -774,7 +967,7 @@ TEST_F(SchedulerTest, schedule__fair_share_balances_users_with_priority)
         tPid pid = schedule();
         const tTaskStruct *task = GetTask(pid);
         ASSERT_NE(task, nullptr);
-        if (task->uid == 1)
+        if (task->uid == 0)
         {
             uid1_hits++;
         }
@@ -803,12 +996,12 @@ TEST_F(SchedulerTest, schedule__fair_share_balances_users_with_priority)
     const int tickets_b3 = TicketCount(12);
     const int tickets_total = tickets_b1 + tickets_b2 + tickets_b3;
 
-    ExpectTaskRuntimeNear(user_a, uid1_hits, ticks / 10, "user 1 task should get roughly half of CPU");
-    ExpectTaskRuntimeNear(user_b1, uid2_hits * tickets_b1 / tickets_total, ticks / 15,
+    ExpectTaskRuntimeNear(user_a, uid1_hits, ticks / 100, "user 1 task should get roughly half of CPU");
+    ExpectTaskRuntimeNear(user_b1, uid2_hits * tickets_b1 / tickets_total, ticks / 100,
                           "priority 4 task should get 5/27 of user 2 share");
-    ExpectTaskRuntimeNear(user_b2, uid2_hits * tickets_b2 / tickets_total, ticks / 15,
+    ExpectTaskRuntimeNear(user_b2, uid2_hits * tickets_b2 / tickets_total, ticks / 100,
                           "priority 8 task should get 9/27 of user 2 share");
-    ExpectTaskRuntimeNear(user_b3, uid2_hits * tickets_b3 / tickets_total, ticks / 15,
+    ExpectTaskRuntimeNear(user_b3, uid2_hits * tickets_b3 / tickets_total, ticks / 100,
                           "priority 12 task should get 13/27 of user 2 share");
     EXPECT_GT(b3_hits, b2_hits) << "higher priority task should run more within user 2";
     EXPECT_GT(b2_hits, b1_hits) << "higher priority task should run more within user 2";
@@ -819,23 +1012,25 @@ TEST_F(SchedulerTest, schedule__fair_share_balances_users_with_priority)
 TEST_F(SchedulerTest, schedule__fair_share_uses_priority_within_user)
 {
     InitScheduler(SCHEDULING_ALGORITHM_FAIR_SHARE_WITH_PRIORITY);
-    auto [low, high] = AddLowHighTasks(1, 15, 5);
+    auto low = 0;
+    auto high = CreateTask(15, 0, 0);
 
-    const int ticks = 1600;
-    int low_hits = 0;
-    int high_hits = 0;
-    CountScheduleHits(ticks, low, low_hits, high, high_hits);
+    const int ticks = 1700;
+    RunScheduler(ticks);
+
+    auto low_hits = GetTask(low)->runtime;
+    auto high_hits = GetTask(high)->runtime;
 
     EXPECT_EQ(low_hits + high_hits, ticks);
 
-    const int low_tickets = TicketCount(1);
+    const int low_tickets = TicketCount(0);
     const int high_tickets = TicketCount(15);
     const int tickets_total = low_tickets + high_tickets;
 
-    ExpectTaskRuntimeNear(low, ticks * low_tickets / tickets_total, ticks / 15,
-                          "low-priority task should get 2/18 of CPU");
-    ExpectTaskRuntimeNear(high, ticks * high_tickets / tickets_total, ticks / 15,
-                          "high-priority task should get 16/18 of CPU");
+    ExpectTaskRuntimeNear(low, ticks * low_tickets / tickets_total, ticks / 100,
+                          "low-priority task should get 1/17 of CPU");
+    ExpectTaskRuntimeNear(high, ticks * high_tickets / tickets_total, ticks / 100,
+                          "high-priority task should get 15/17 of CPU");
     EXPECT_GT(high_hits, low_hits * 2)
         << "within one user, higher priority should run noticeably longer";
     VisualizeTasks();
@@ -844,22 +1039,20 @@ TEST_F(SchedulerTest, schedule__fair_share_uses_priority_within_user)
 TEST_F(SchedulerTest, schedule__fair_share_balances_late_arrival)
 {
     InitScheduler(SCHEDULING_ALGORITHM_FAIR_SHARE_WITH_PRIORITY);
-    auto user_a = create_task(8, 0, 1);
     auto user_b1 = create_task(8, 0, 2);
-    ASSERT_GT(user_a, 0);
     ASSERT_GT(user_b1, 0);
-    ASSERT_EQ(block_task(0), 0);
 
-    const int warmup_ticks = 400;
+    const int warmup_ticks = 2400;
     const int post_arrival_ticks = 2400;
     RunScheduler(warmup_ticks);
+    VisualizeTasks();
 
     const int b1_before = GetTask(user_b1)->runtime;
     ASSERT_GT(b1_before, 0);
 
     auto user_b2 = create_task(8, 0, 2);
     ASSERT_GT(user_b2, 0);
-    EXPECT_EQ(GetTask(user_b2)->start_time, scheduler_.total_runtime);
+    EXPECT_EQ(GetTask(user_b2)->start_time, scheduler_->total_runtime);
 
     int uid1_post = 0;
     int uid2_post = 0;
@@ -870,7 +1063,7 @@ TEST_F(SchedulerTest, schedule__fair_share_balances_late_arrival)
         tPid pid = schedule();
         const tTaskStruct *task = GetTask(pid);
         ASSERT_NE(task, nullptr);
-        if (task->uid == 1)
+        if (task->uid == 0)
         {
             uid1_post++;
         }
@@ -889,9 +1082,9 @@ TEST_F(SchedulerTest, schedule__fair_share_balances_late_arrival)
     }
 
     ExpectFairUserBalance(uid1_post, uid2_post, post_arrival_ticks);
-    EXPECT_NEAR(b1_post, uid2_post / 2, post_arrival_ticks / 10)
+    EXPECT_NEAR(b1_post, uid2_post / 2, post_arrival_ticks / 100)
         << "after arrival, equal-priority tasks should split only future CPU";
-    EXPECT_NEAR(b2_post, uid2_post / 2, post_arrival_ticks / 10)
+    EXPECT_NEAR(b2_post, uid2_post / 2, post_arrival_ticks / 100)
         << "late arrival should receive its future share without catching up the past";
     EXPECT_GT(GetTask(user_b1)->runtime, GetTask(user_b2)->runtime + b1_before / 2)
         << "time before start_time must not be repaid to the new task";

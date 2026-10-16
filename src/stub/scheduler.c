@@ -7,6 +7,7 @@
 
 static tScheduler *g_scheduler = NULL;
 static uint32_t g_rng = 1;
+static int g_current_slot = -1;
 
 static uint32_t next_rand(void)
 {
@@ -41,7 +42,7 @@ static tTaskStruct *find_task_in_mgr(tPid pid)
 static int task_index(tPid pid)
 {
     const tTaskMgr *mgr = get_taskMgr();
-    if (mgr == NULL)
+    if (mgr == NULL || pid < 0)
     {
         return -1;
     }
@@ -75,7 +76,7 @@ static int32_t ticket_count(const tTaskStruct *task)
     return (int32_t)task->priority + 1;
 }
 
-static tPid next_ready_after(tPid pid)
+static tPid next_ready_after(int slot)
 {
     const tTaskMgr *mgr = get_taskMgr();
     if (mgr == NULL || mgr->size == 0)
@@ -83,10 +84,9 @@ static tPid next_ready_after(tPid pid)
         return -1;
     }
 
-    int start = task_index(pid);
     for (uint8_t k = 1; k <= mgr->size; k++)
     {
-        int i = (start + k) % mgr->size;
+        int i = (slot + k) % mgr->size;
         if (is_ready(&mgr->tasks[i]))
         {
             return mgr->tasks[i].pid;
@@ -104,7 +104,7 @@ static tPid keep_or_rr(int32_t quantum)
         return current->pid;
     }
 
-    tPid next = next_ready_after(g_scheduler->current_task);
+    tPid next = next_ready_after(g_current_slot);
     if (next < 0 && is_ready(current))
     {
         return current->pid;
@@ -142,14 +142,14 @@ static tPid pick_random_priority(void)
     }
 
     int32_t ticket = (int32_t)(next_rand() % (uint32_t)total);
+    total = 0;
     for (uint8_t i = 0; i < mgr->size; i++)
     {
-        if (!is_ready(&mgr->tasks[i]))
+        if (is_ready(&mgr->tasks[i]))
         {
-            continue;
+            total += ticket_count(&mgr->tasks[i]);
         }
-        ticket -= ticket_count(&mgr->tasks[i]);
-        if (ticket < 0)
+        if (ticket < total)
         {
             return mgr->tasks[i].pid;
         }
@@ -498,13 +498,14 @@ static tPid pick_runnable(void)
 
     for (uint8_t i = 0; i < mgr->size && next >= 0; i++)
     {
+        int slot = task_index(next);
         tTaskStruct *task = find_task_in_mgr(next);
         handle_signals(task);
         if (is_ready(task))
         {
             return next;
         }
-        next = next_ready_after(next);
+        next = next_ready_after(slot);
     }
 
     return -1;
@@ -513,6 +514,7 @@ static tPid pick_runnable(void)
 void init_scheduler(tScheduler *scheduler)
 {
     g_scheduler = scheduler;
+    g_current_slot = -1;
     if (scheduler == NULL)
     {
         g_rng = 1;
@@ -528,6 +530,7 @@ void init_scheduler(tScheduler *scheduler)
 void destroy_scheduler(void)
 {
     g_scheduler = NULL;
+    g_current_slot = -1;
 }
 
 int32_t get_total_runtime(void)
@@ -566,6 +569,14 @@ tPid schedule(void)
     g_scheduler->total_runtime++;
 
     tPid next = pick_runnable();
+    if (next >= 0)
+    {
+        int slot = task_index(next);
+        if (slot >= 0)
+        {
+            g_current_slot = slot;
+        }
+    }
     if (next != g_scheduler->current_task)
     {
         g_scheduler->current_task = next;

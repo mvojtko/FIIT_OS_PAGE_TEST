@@ -10,7 +10,7 @@ CFLAGS_LIB = $(CFLAGS_COMMON) \
 CXXFLAGS_APP = $(CFLAGS_COMMON) -Igtest/googletest/include -pthread
 
 LDFLAGS_LIB = -shared
-LDFLAGS_APP = -L$(BUILD_DIR) -lospager $(GTEST_LIB)
+LDFLAGS_APP = -L$(BUILD_DIR) -los $(GTEST_LIB)
 
 GTEST_DIR = gtest
 GTEST_LIB = build/lib/libgtest.a
@@ -21,7 +21,7 @@ LIB_SRC_DIR = $(SRC_DIR)/stub
 BUILD_DIR = build
 
 # Output targets
-LIB_TARGET = $(BUILD_DIR)/libospager.so
+LIB_TARGET = $(BUILD_DIR)/libos.so
 APP_TARGET = $(BUILD_DIR)/os
 
 # Source files
